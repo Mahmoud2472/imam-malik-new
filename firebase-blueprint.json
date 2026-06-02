@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user with specific roles",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "teacher", "student"] },
+        "displayName": { "type": "string" },
+        "studentId": { "type": "string", "description": "Optional: Link to student profile if role is student" },
+        "teacherId": { "type": "string", "description": "Optional: Link to teacher profile if role is teacher" }
+      },
+      "required": ["email", "role"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student academic profile",
+      "type": "object",
+      "properties": {
+        "admissionNumber": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "currentClassId": { "type": "string" },
+        "dateOfBirth": { "type": "string" },
+        "gender": { "type": "string" },
+        "guardianName": { "type": "string" },
+        "guardianPhone": { "type": "string" },
+        "address": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "suspended", "graduated", "withdrawn"] }
+      },
+      "required": ["admissionNumber", "firstName", "lastName", "currentClassId"]
+    },
+    "Application": {
+      "title": "Application",
+      "description": "Prospective student admission application",
+      "type": "object",
+      "properties": {
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "targetClassId": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "paymentStatus": { "type": "string", "enum": ["pending", "verified"] },
+        "transactionId": { "type": "string" },
+        "appliedDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["firstName", "lastName", "targetClassId", "email"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Fee payment record",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "description": "Admission, 1st Term, 2nd Term, 3rd Term, etc." },
+        "session": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "verified", "failed"] },
+        "paymentDate": { "type": "string", "format": "date-time" },
+        "receiptNumber": { "type": "string" }
+      },
+      "required": ["studentId", "amount", "type", "session", "status"]
+    },
+    "Result": {
+      "title": "Result",
+      "description": "Student terminal academic result",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "classId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "term": { "type": "string", "enum": ["1st", "2nd", "3rd"] },
+        "session": { "type": "string" },
+        "caScore": { "type": "number" },
+        "examScore": { "type": "number" },
+        "totalScore": { "type": "number" },
+        "grade": { "type": "string" }
+      },
+      "required": ["studentId", "subjectId", "term", "session"]
+    },
+    "Class": {
+      "title": "Class",
+      "description": "School class definition",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "level": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "School subject definition",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "code": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "School-wide public update",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "priority": { "type": "string", "enum": ["low", "normal", "high"] }
+      },
+      "required": ["title", "content"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "Internal user roles" },
+    "/students/{studentId}": { "schema": "Student", "description": "Student profiles" },
+    "/applications/{applicationId}": { "schema": "Application", "description": "Admission applications" },
+    "/payments/{paymentId}": { "schema": "Payment", "description": "Fee payments" },
+    "/results/{resultId}": { "schema": "Result", "description": "Academic records" },
+    "/classes/{classId}": { "schema": "Class", "description": "Classes" },
+    "/subjects/{subjectId}": { "schema": "Subject", "description": "Subjects" },
+    "/announcements/{announcementId}": { "schema": "Announcement", "description": "Announcements" }
+  }
+}

@@ -1,0 +1,42 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --school-green: #064e3b;
+  --school-green-light: #065f46;
+  --school-gold: #d97706;
+  --school-gold-light: #f59e0b;
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.2);
+}
+
+body {
+  @apply bg-slate-50 text-slate-900;
+  font-family: var(--font-sans);
+}
+
+.glass-card {
+  @apply bg-white/80 backdrop-blur-md border border-white/20 shadow-sm rounded-2xl;
+}
+
+.school-gradient {
+  background: linear-gradient(135deg, var(--school-green) 0%, #065f46 100%);
+}
+
+.btn-primary {
+  @apply bg-emerald-900 text-white px-6 py-2.5 rounded-xl font-medium transition-all hover:bg-emerald-800 active:scale-95 disabled:opacity-50;
+}
+
+.btn-secondary {
+  @apply bg-amber-600 text-white px-6 py-2.5 rounded-xl font-medium transition-all hover:bg-amber-500 active:scale-95 disabled:opacity-50;
+}
+
+.input-field {
+  @apply w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all;
+}
+

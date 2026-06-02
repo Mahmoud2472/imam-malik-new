@@ -1,0 +1,6 @@
+{
+  "name": "Imam Malik Science & Tahfiz College Management System",
+  "description": "A comprehensive school management system featuring student, teacher, and admin portals, online admissions, payment tracking, and automated result processing.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
