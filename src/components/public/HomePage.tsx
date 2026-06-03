@@ -77,22 +77,22 @@ export default function HomePage() {
               <span className="inline-block py-1.5 px-3 bg-amber-500/15 border border-amber-500/30 text-amber-500 rounded-full text-xs font-black uppercase tracking-widest mb-6">
                 Established Since 2005
               </span>
-              <h1 className="text-4xl md:text-7xl font-bold text-white mb-6 leading-[1.1] tracking-tight">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 md:mb-6 leading-[1.1] tracking-tight">
                 Nurturing <span className="text-amber-500 italic">Faith</span> & <span className="text-emerald-400">Scientific</span> Excellence
               </h1>
-              <p className="text-base md:text-lg text-emerald-100/85 mb-10 leading-relaxed max-w-lg font-medium">
+              <p className="text-sm md:text-base text-emerald-100/85 mb-6 md:mb-10 leading-relaxed max-w-md font-medium">
                 Providing holistic education that integrates Quranic memorization with cutting-edge academic curricula for a brighter future.
               </p>
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <Link 
                   to="/admission"
-                  className="btn-secondary px-8 py-4 flex items-center justify-center gap-2 group shadow-xl shadow-amber-900/20 text-base font-bold"
+                  className="btn-secondary px-6 py-3 md:px-8 md:py-4 flex items-center justify-center gap-2 group shadow-xl shadow-amber-900/20 text-sm md:text-base font-bold"
                 >
                   Enroll Your Child <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
                 </Link>
                 <Link 
                   to="/about"
-                  className="px-8 py-4 border-2 border-white/30 text-white rounded-xl font-bold hover:bg-white/10 hover:border-white/60 transition-colors text-center"
+                  className="px-6 py-3 md:px-8 md:py-4 border-2 border-white/30 text-white rounded-xl font-bold hover:bg-white/10 hover:border-white/60 transition-colors text-center text-sm md:text-base"
                 >
                   Learn More
                 </Link>
