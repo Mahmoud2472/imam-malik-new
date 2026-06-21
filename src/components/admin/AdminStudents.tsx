@@ -108,6 +108,35 @@ export default function AdminStudents() {
     return classes.find(c => c.id === classId)?.name || classId || 'Unassigned';
   };
 
+  const handleExportCSV = () => {
+    const headers = ['Admission Number', 'First Name', 'Last Name', 'Gender', 'Class', 'Status', 'Phone'];
+    const csvRows = [
+      headers.join(','),
+      ...filteredStudents.map(s => {
+        const rowData = [
+          s.admissionNumber || '',
+          s.firstName || '',
+          s.lastName || '',
+          s.gender || '',
+          getClassName(s.currentClassId),
+          s.status || 'Active',
+          s.phone || ''
+        ];
+        return rowData.map(val => `"${String(val).replace(/"/g, '""')}"`).join(',');
+      })
+    ];
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `student_list_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col xl:flex-row justify-between items-center gap-4">
@@ -123,15 +152,21 @@ export default function AdminStudents() {
         <div className="flex items-center gap-3 w-full xl:w-auto">
           <button 
             onClick={generateReport}
-            className="flex-1 xl:flex-none flex items-center justify-center gap-2 px-6 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-600 font-bold text-xs hover:bg-slate-50 transition-colors"
+            className="flex-grow xl:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-600 font-bold text-xs hover:bg-slate-50 transition-colors"
           >
             <FileText size={16} /> Export PDF Report
           </button>
           <button 
-            onClick={handleAddNew}
-            className="flex-1 xl:flex-none btn-primary flex items-center justify-center gap-2 px-6 py-2.5 shadow-lg shadow-emerald-900/10"
+            onClick={handleExportCSV}
+            className="flex-grow xl:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-emerald-700 font-bold text-xs hover:bg-emerald-50/50 transition-colors"
           >
-            <Plus size={18} /> Add New Student
+            <Download size={16} /> Export CSV
+          </button>
+          <button 
+            onClick={handleAddNew}
+            className="flex-grow xl:flex-none btn-primary flex items-center justify-center gap-2 px-5 py-2.5 shadow-lg shadow-emerald-900/10"
+          >
+            <Plus size={18} /> Add New
           </button>
         </div>
       </div>

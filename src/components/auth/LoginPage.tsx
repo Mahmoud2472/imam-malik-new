@@ -2,9 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { GraduationCap, Mail, Lock, Loader2, ArrowLeft, Landmark, UserPlus, LogIn } from 'lucide-react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../../lib/firebase';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
@@ -13,8 +11,30 @@ export default function LoginPage() {
   const [displayName, setDisplayName] = useState('');
   const [mode, setMode] = useState<'login' | 'register'>((searchParams.get('mode') as any) === 'register' ? 'register' : 'login');
   const [loading, setLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const getRedirectUrl = (defaultPath: string) => {
+    const returnTo = searchParams.get('return-to');
+    if (returnTo) {
+      const searchCopy = new URLSearchParams(searchParams);
+      searchCopy.delete('return-to');
+      searchCopy.delete('mode');
+      const searchStr = searchCopy.toString();
+      return `/${returnTo}${searchStr ? '?' + searchStr : ''}`;
+    }
+    return defaultPath;
+  };
+
+  const [isForceMock, setIsForceMock] = useState(localStorage.getItem('imsc_force_mock_supabase') === 'true');
+
+  const toggleMockMode = () => {
+    const newVal = !isForceMock;
+    localStorage.setItem('imsc_force_mock_supabase', newVal ? 'true' : 'false');
+    setIsForceMock(newVal);
+    window.location.reload();
+  };
 
   useEffect(() => {
     const qMode = searchParams.get('mode');
@@ -26,23 +46,42 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setLoadingStatus(mode === 'login' ? 'Verifying credentials...' : 'Creating secure user credentials...');
 
     try {
       if (mode === 'login') {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
+        const { data, error: authErr } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+
+        if (authErr) throw authErr;
+        const user = data.user;
         
+        setLoadingStatus('Retrieving user dashboard configuration...');
         let role = 'applicant';
-        const cacheKey = `imsc_user_data_${user.uid}`;
+        const cacheKey = `imsc_user_data_${user!.id}`;
         
         try {
-          const docRef = doc(db, "users", user.uid);
-          const docSnap = await getDoc(docRef);
-          
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            role = data?.role || 'applicant';
-            localStorage.setItem(cacheKey, JSON.stringify(data));
+          const { data: profile, error: dbErr } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user!.id)
+            .single();
+
+          if (profile && !dbErr) {
+            role = profile.role || 'applicant';
+            const userProfile = {
+              role,
+              displayName: profile.displayName || profile.display_name || email.split('@')[0],
+              email: profile.email || email,
+              studentId: profile.studentId || profile.student_id,
+              teacherId: profile.teacherId || profile.teacher_id,
+              photoUrl: profile.photoUrl || profile.photo_url,
+              admissionStatus: profile.admissionStatus || profile.admission_status,
+              targetClass: profile.targetClass || profile.target_class
+            };
+            localStorage.setItem(cacheKey, JSON.stringify(userProfile));
           } else {
             const emailLower = email.toLowerCase();
             if (emailLower.includes('admin')) {
@@ -55,12 +94,17 @@ export default function LoginPage() {
             
             const newProfile = {
               role,
-              displayName: user?.displayName || email.split('@')[0] || 'New User',
+              displayName: displayName || email.split('@')[0] || 'New User',
               email,
               createdAt: new Date().toISOString()
             };
             
-            await setDoc(docRef, newProfile);
+            await supabase.from('profiles').insert({
+              id: user!.id,
+              email: newProfile.email,
+              role: newProfile.role,
+              displayName: newProfile.displayName
+            });
             localStorage.setItem(cacheKey, JSON.stringify(newProfile));
           }
         } catch (dbErr) {
@@ -85,107 +129,99 @@ export default function LoginPage() {
           }
         }
 
-        if (role === 'admin') navigate('/admin');
-        else if (role === 'teacher') navigate('/teacher');
-        else if (role === 'student') navigate('/student');
-        else if (role === 'applicant') navigate('/admission');
-        else navigate('/');
+        if (role === 'admin') navigate(getRedirectUrl('/admin'));
+        else if (role === 'teacher') navigate(getRedirectUrl('/teacher'));
+        else if (role === 'student') navigate(getRedirectUrl('/student'));
+        else if (role === 'applicant') navigate(getRedirectUrl('/admission'));
+        else navigate(getRedirectUrl('/'));
       } else {
-        let user;
-        try {
-          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-          user = userCredential.user;
-          await updateProfile(user, { displayName: displayName || email.split('@')[0] });
+        let role = 'applicant';
+        const userDisplayName = displayName || email.split('@')[0];
+        
+        const emailLower = email.toLowerCase();
+        if (emailLower.includes('admin')) {
+          role = 'admin';
+        } else if (emailLower.includes('teacher')) {
+          role = 'teacher';
+        } else if (emailLower.includes('student')) {
+          role = 'student';
+        }
+
+        const { data, error: registerErr } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              displayName: userDisplayName,
+              role: role
+            }
+          }
+        });
+
+        if (registerErr) {
+          const message = (registerErr.message || '').toLowerCase();
+          if (message.includes('already-registered') || message.includes('already exists') || message.includes('use')) {
+            setLoadingStatus('Email exists, signing in instead...');
+            const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+              email,
+              password
+            });
+            if (signInErr) throw registerErr; // report original signup err if fallback signin fails
+            
+            const user = signInData.user;
+            const { data: profile } = await supabase.from('profiles').select('*').eq('id', user!.id).single();
+            if (profile) {
+              role = profile.role || 'applicant';
+              localStorage.setItem(`imsc_user_data_${user!.id}`, JSON.stringify(profile));
+            }
+          } else {
+            throw registerErr;
+          }
+        } else if (data.user) {
+          const user = data.user;
+          setLoadingStatus('Completing profile setup...');
           
           const newProfile = {
-            role: 'applicant',
-            displayName: displayName || email.split('@')[0],
+            role,
+            displayName: userDisplayName,
             email,
             createdAt: new Date().toISOString()
           };
           
           try {
-            await setDoc(doc(db, "users", user.uid), newProfile);
-          } catch (writeErr) {
-            console.warn("Could not save new user document online. Storing locally for now.", writeErr);
-          }
-          localStorage.setItem(`imsc_user_data_${user.uid}`, JSON.stringify(newProfile));
-        } catch (regErr: any) {
-          const code = (regErr?.code || '').toLowerCase();
-          const message = (regErr?.message || '').toLowerCase();
-          if (code.includes('email-already-in-use') || message.includes('email-already-in-use')) {
-            try {
-              // Seamless login fallback if password is correct
-              const userCredential = await signInWithEmailAndPassword(auth, email, password);
-              user = userCredential.user;
-            } catch (signInErr: any) {
-              throw regErr;
-            }
-          } else {
-            throw regErr;
-          }
-        }
-        
-        let role = 'applicant';
-        const cacheKey = `imsc_user_data_${user.uid}`;
-        try {
-          const docRef = doc(db, "users", user.uid);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            role = data?.role || 'applicant';
-            localStorage.setItem(cacheKey, JSON.stringify(data));
-          } else {
-            const newProfile = {
-              role: 'applicant',
-              displayName: user.displayName || displayName || email.split('@')[0],
+            await supabase.from('profiles').insert({
+              id: user.id,
               email,
-              createdAt: new Date().toISOString()
-            };
-            await setDoc(docRef, newProfile);
-            localStorage.setItem(cacheKey, JSON.stringify(newProfile));
+              role,
+              displayName: userDisplayName
+            });
+          } catch (writeErr) {
+            console.warn("Could not save new user document online.", writeErr);
           }
-        } catch (dbErr) {
-          console.warn("Could not fetch user document details online after registration.", dbErr);
-          const cached = localStorage.getItem(cacheKey);
-          if (cached) {
-            try {
-              const cachedData = JSON.parse(cached);
-              role = cachedData.role || 'applicant';
-            } catch (e) {
-              // ignore
-            }
-          }
+
+          localStorage.setItem(`imsc_user_data_${user.id}`, JSON.stringify(newProfile));
         }
-        
-        if (role === 'admin') navigate('/admin');
-        else if (role === 'teacher') navigate('/teacher');
-        else if (role === 'student') navigate('/student');
-        else if (role === 'applicant') navigate('/admission');
-        else navigate('/');
+
+        setLoadingStatus('Navigating to portal dashboard...');
+        if (role === 'admin') navigate(getRedirectUrl('/admin'));
+        else if (role === 'teacher') navigate(getRedirectUrl('/teacher'));
+        else if (role === 'student') navigate(getRedirectUrl('/student'));
+        else if (role === 'applicant') navigate(getRedirectUrl('/admission'));
+        else navigate(getRedirectUrl('/'));
       }
     } catch (err: any) {
       console.error(err);
-      const code = (err?.code || '').toLowerCase();
       const message = (err?.message || '').toLowerCase();
-      let msg = "Authentication failed. Please check your credentials.";
+      let msg = "Authentication failed. Please check your qualifications.";
       
-      if (code.includes('email-already-in-use') || message.includes('email-already-in-use')) {
+      if (message.includes('already') || message.includes('exists') || message.includes('use')) {
         msg = "This email address is already registered. Please sign in instead.";
-      } else if (code.includes('invalid-email') || message.includes('invalid-email')) {
+      } else if (message.includes('invalid') && message.includes('email')) {
         msg = "Please enter a valid email address.";
-      } else if (
-        code.includes('user-not-found') || message.includes('user-not-found') || 
-        code.includes('wrong-password') || message.includes('wrong-password') || 
-        code.includes('invalid-credential') || message.includes('invalid-credential')
-      ) {
+      } else if (message.includes('invalid') && message.includes('credential') || message.includes('password') || message.includes('not found')) {
         msg = "Incorrect email or password. Please verify your credentials and try again.";
-      } else if (code.includes('weak-password') || message.includes('weak-password')) {
+      } else if (message.includes('weak') || message.includes('at least 6')) {
         msg = "Your password is too weak. Please choose a password with at least 6 characters.";
-      } else if (code.includes('network-request-failed') || message.includes('network-request-failed')) {
-        msg = "Network connection issue. Please check your internet connection.";
-      } else if (code.includes('too-many-requests') || message.includes('too-many-requests')) {
-        msg = "Too many failed attempts. This account has been temporarily locked. Please try again soon.";
       } else {
         msg = err.message || msg;
       }
@@ -210,89 +246,95 @@ export default function LoginPage() {
 
     try {
       // 1. Try to sign in
-      try {
-        const userCredential = await signInWithEmailAndPassword(auth, target.email, target.password);
-        const user = userCredential.user;
+      const { data, error: signInErr } = await supabase.auth.signInWithPassword({
+        email: target.email,
+        password: target.password
+      });
+
+      if (signInErr) {
+        // If not found in mock/real, register it
+        const { data: regData, error: regErr } = await supabase.auth.signUp({
+          email: target.email,
+          password: target.password,
+          options: {
+            data: {
+              displayName: target.displayName,
+              role
+            }
+          }
+        });
+
+        if (regErr) throw regErr;
         
-        // Ensure user record exists in Firestore. If missing, make it.
-        const docSnap = await getDoc(doc(db, "users", user.uid));
-        if (!docSnap.exists()) {
+        const user = regData.user;
+        if (user) {
           const payload: any = {
+            id: user.id,
+            email: target.email,
+            role,
+            displayName: target.displayName,
+            admission_status: (target as any).admissionStatus || 'pending'
+          };
+          if (role === 'teacher') payload.teacher_id = (target as any).teacherId;
+          if (role === 'student') {
+            payload.student_id = (target as any).studentId;
+            payload.target_class = (target as any).targetClass;
+          }
+
+          await supabase.from('profiles').insert(payload);
+          localStorage.setItem(`imsc_user_data_${user.id}`, JSON.stringify({
             role,
             displayName: target.displayName,
             email: target.email,
-            createdAt: new Date().toISOString()
-          };
-          if (role === 'teacher') payload.teacherId = (target as any).teacherId;
-          if (role === 'student') {
-            payload.studentId = (target as any).studentId;
-            payload.admissionStatus = (target as any).admissionStatus;
-            payload.targetClass = (target as any).targetClass;
-          }
-          await setDoc(doc(db, "users", user.uid), payload);
+            studentId: (target as any).studentId,
+            teacherId: (target as any).teacherId,
+            admissionStatus: (target as any).admissionStatus,
+            targetClass: (target as any).targetClass
+          }));
         }
-      } catch (signInErr: any) {
-        // If not found, create it dynamically (case-insensitive checks)
-        const code = (signInErr?.code || '').toLowerCase();
-        const msg = (signInErr?.message || '').toLowerCase();
+      } else if (data.user) {
+        const user = data.user;
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
         
-        if (
-          code.includes('user-not-found') || msg.includes('user-not-found') ||
-          code.includes('invalid-credential') || msg.includes('invalid-credential') ||
-          code.includes('wrong-password') || msg.includes('wrong-password') ||
-          code.includes('user-disabled') || msg.includes('user-disabled')
-        ) {
-          try {
-            const userCredential = await createUserWithEmailAndPassword(auth, target.email, target.password);
-            const user = userCredential.user;
-            await updateProfile(user, { displayName: target.displayName });
-
-            const payload: any = {
-              role,
-              displayName: target.displayName,
-              email: target.email,
-              createdAt: new Date().toISOString()
-            };
-            if (role === 'teacher') payload.teacherId = (target as any).teacherId;
-            if (role === 'student') {
-              payload.studentId = (target as any).studentId;
-              payload.admissionStatus = (target as any).admissionStatus;
-              payload.targetClass = (target as any).targetClass;
-            }
-            await setDoc(doc(db, "users", user.uid), payload);
-          } catch (createErr: any) {
-            const createCode = (createErr?.code || '').toLowerCase();
-            const createMsg = (createErr?.message || '').toLowerCase();
-            if (createCode.includes('email-already-in-use') || createMsg.includes('email-already-in-use')) {
-              // Simply sign in again or report password discrepancy
-              throw new Error("This demo email is already registered with a customized password. Please use the manual signup form to register your own account.");
-            }
-            throw createErr;
+        let targetProfile = profile;
+        if (!profile) {
+          const payload: any = {
+            id: user.id,
+            email: target.email,
+            role,
+            displayName: target.displayName,
+            admission_status: (target as any).admissionStatus || 'pending'
+          };
+          if (role === 'teacher') payload.teacher_id = (target as any).teacherId;
+          if (role === 'student') {
+            payload.student_id = (target as any).studentId;
+            payload.target_class = (target as any).targetClass;
           }
-        } else {
-          throw signInErr;
+          await supabase.from('profiles').insert(payload);
+          targetProfile = payload;
         }
+
+        localStorage.setItem(`imsc_user_data_${user.id}`, JSON.stringify({
+          role,
+          displayName: targetProfile.displayName || targetProfile.display_name || target.displayName,
+          email: target.email,
+          studentId: targetProfile.studentId || targetProfile.student_id || (target as any).studentId,
+          teacherId: targetProfile.teacherId || targetProfile.teacher_id || (target as any).teacherId,
+          admissionStatus: targetProfile.admissionStatus || targetProfile.admission_status || (target as any).admissionStatus,
+          targetClass: targetProfile.targetClass || targetProfile.target_class || (target as any).targetClass
+        }));
       }
 
       // Re-route based on role
-      if (role === 'admin') navigate('/admin');
-      else if (role === 'teacher') navigate('/teacher');
-      else if (role === 'student') navigate('/student');
-      else if (role === 'applicant') navigate('/admission');
-      else navigate('/');
+      if (role === 'admin') navigate(getRedirectUrl('/admin'));
+      else if (role === 'teacher') navigate(getRedirectUrl('/teacher'));
+      else if (role === 'student') navigate(getRedirectUrl('/student'));
+      else if (role === 'applicant') navigate(getRedirectUrl('/admission'));
+      else navigate(getRedirectUrl('/'));
 
     } catch (err: any) {
       console.error("Demo login error:", err);
-      const isIncorrectCred = (err?.code || '').toLowerCase().includes('invalid-credential') || 
-                              (err?.message || '').toLowerCase().includes('invalid-credential') ||
-                              (err?.code || '').toLowerCase().includes('wrong-password') || 
-                              (err?.message || '').toLowerCase().includes('wrong-password');
-      
-      if (isIncorrectCred) {
-        setError("Unable to sign in with demo credentials. If you altered this demo user's password, please sign in with your updated credentials or register a free applicant account.");
-      } else {
-        setError(err?.message || "Demo login activation failed. Please try again or register a custom account.");
-      }
+      setError(err?.message || "Demo login activation failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -338,14 +380,56 @@ export default function LoginPage() {
             </p>
           </div>
 
+          {/* Database Mode Control Banner */}
+          <div className="mb-6 p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <span className="block text-[9px] font-black uppercase text-slate-400 tracking-wider">Connection Mode</span>
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
+                <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
+                {isSupabaseConfigured ? 'Live Supabase (Production)' : 'Simulated Table Sandbox'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={toggleMockMode}
+              className="px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider bg-emerald-900 border border-emerald-950 text-white hover:bg-emerald-950 rounded-lg transition-all shadow-sm cursor-pointer"
+            >
+              {isSupabaseConfigured ? 'Use Local Mode' : 'Use Live Online'}
+            </button>
+          </div>
+
           <form onSubmit={handleAuth} className="space-y-5">
             {error && (
               <div className="p-4 bg-red-50 text-red-700 text-xs rounded-xl border border-red-150 flex items-start gap-3 leading-relaxed">
                 <div className="w-5 h-5 bg-red-100 text-red-700 rounded-full flex items-center justify-center shrink-0 font-black">!</div>
-                <div className="flex-1">
+                <div className="flex-1 space-y-2">
                   <p className="font-bold">{error}</p>
-                  {mode === 'login' && (
-                    <p className="text-[10px] text-red-600 mt-1">If you don't have a personal account, use the <strong className="uppercase">Sandbox Demo Portals</strong> below to sign in instantly.</p>
+                  
+                  {error.toLowerCase().includes('rate limit') || error.toLowerCase().includes('too many') ? (
+                    <div className="text-[11px] bg-red-100/50 p-2.5 rounded-lg border border-red-200 text-red-800 space-y-1.5 mt-2">
+                      <p className="font-semibold text-[11px]">⚠️ Live Supabase Security/Rate Limit Enforced</p>
+                      <p>Supabase limits email sign-ups per hour on the free tier to prevent bot registrations.</p>
+                      <div className="pt-1.5 space-y-1">
+                        <p className="font-bold text-[10.5px]">To disable or raise this in Supabase:</p>
+                        <ul className="list-disc list-inside space-y-1 pl-1 text-[10px] text-red-700">
+                          <li>Go to your <strong>Supabase Dashboard</strong> &rarr; <strong>Authentication</strong> &rarr; <strong>Rate Limits</strong>, and increase hourly limits (e.g. 100).</li>
+                          <li>Go to <strong>Authentication</strong> &rarr; <strong>Providers</strong> &rarr; <strong>Email Provider</strong>, and toggle <strong>"Confirm Email"</strong> off to let users register and sign in instantly without waiting for verify links!</li>
+                        </ul>
+                      </div>
+                      <div className="pt-2.5">
+                        <button
+                          type="button"
+                          onClick={toggleMockMode}
+                          className="w-full bg-emerald-900 border border-emerald-950 text-white rounded-lg px-3 py-2 font-bold uppercase tracking-wider text-[10px] hover:bg-emerald-950 transition-colors shadow-sm cursor-pointer"
+                        >
+                          ⚡ Switch to Local Sandbox & Continue Testing
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    mode === 'login' && (
+                      <p className="text-[10px] text-red-600 mt-1">If you don't have a personal account, use the <strong className="uppercase">Sandbox Demo Portals</strong> below to sign in instantly.</p>
+                    )
                   )}
                 </div>
               </div>
@@ -410,9 +494,17 @@ export default function LoginPage() {
             <button 
               type="submit" 
               disabled={loading}
-              className="w-full btn-primary py-3.5 flex items-center justify-center gap-2 text-base shadow-lg shadow-emerald-900/10 cursor-pointer"
+              className="w-full btn-primary py-3.5 flex flex-col items-center justify-center gap-1 text-base shadow-lg shadow-emerald-900/10 cursor-pointer"
             >
-              {loading ? <Loader2 className="animate-spin" size={20} /> : (
+              {loading ? (
+                <div className="flex flex-col items-center gap-1 py-0.5">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="animate-spin text-amber-400" size={18} />
+                    <span className="font-bold text-sm">Please Wait...</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-100 font-sans tracking-wide font-normal">{loadingStatus || 'Processing...'}</span>
+                </div>
+              ) : (
                 mode === 'login' ? <><LogIn size={18} /> Sign In to Portal</> : <><UserPlus size={18} /> Create Account</>
               )}
             </button>

@@ -53,7 +53,7 @@ function QueryRedirector() {
       
       const searchStr = combinedParams.toString();
       navigate(`/admission?${searchStr}`, { replace: true });
-    } else if (returnTo) {
+    } else if (returnTo && !window.location.hash.includes('/auth') && !window.location.pathname.includes('/auth')) {
       const urlParams = new URLSearchParams(window.location.search);
       const hashPart = window.location.hash;
       const hashQueryIndex = hashPart.indexOf('?');

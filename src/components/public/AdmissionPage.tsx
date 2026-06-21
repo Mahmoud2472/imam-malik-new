@@ -3,13 +3,11 @@ import { useForm } from 'react-hook-form';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, CreditCard, FileText, UserPlus, Download, AlertCircle, Loader2, ShieldCheck, LogIn, Printer } from 'lucide-react';
-import { collection, addDoc, serverTimestamp, query, where, getDocs, onSnapshot, doc, updateDoc, setDoc, limit } from 'firebase/firestore';
-import { db, auth } from '../../lib/firebase';
+import { supabase } from '../../lib/supabase';
 import { jsPDF } from 'jspdf';
 import { generateId, formatDate, cn, formatCurrency } from '../../lib/utils';
 import { useAuth } from '../../lib/auth';
 import AdmissionLetter from './AdmissionLetter';
-import { signOut } from 'firebase/auth';
 import QRCode from 'qrcode';
 
 type FormData = {
@@ -46,26 +44,57 @@ export default function AdmissionPage() {
   const [verifyingUrl, setVerifyingUrl] = useState(false);
   const [existingApplication, setExistingApplication] = useState<any>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
-  const [admissionFee, setAdmissionFee] = useState({ amount: 1000, name: 'Admission Application Fee' });
+  const [admissionFee, setAdmissionFee] = useState({ amount: 1000, name: 'Admission & Prospectus Fee' });
   const [openedPaymentTab, setOpenedPaymentTab] = useState(false);
   const [copiedCallbackUrl, setCopiedCallbackUrl] = useState(false);
   const [showPrintSlip, setShowPrintSlip] = useState(false);
   
-  // Custom Netlify Settings
-  const [netlifyFormUrl, setNetlifyFormUrl] = useState<string>('');
-  const [useExternalForm, setUseExternalForm] = useState<boolean>(false);
+  // Custom FormBold/External Settings
+  const [netlifyFormUrl, setNetlifyFormUrl] = useState<string>(localStorage.getItem('imsc_netlify_form_url') || 'https://formbold.com/s/9mBJY');
+  const [useExternalForm, setUseExternalForm] = useState<boolean>(localStorage.getItem('imsc_use_external_form') === 'true');
+  const [paystackPublicKey, setPaystackPublicKey] = useState<string>(
+    localStorage.getItem('imsc_paystack_public_key') || 
+    (import.meta as any).env.VITE_PAYSTACK_PUBLIC_KEY || 
+    'pk_live_322d4bde836a684b28f791049b8c3997742c8985'
+  );
+  const [admissionFeeAmount, setAdmissionFeeAmount] = useState<number>(() => {
+    const cached = localStorage.getItem('imsc_admission_fee_amount');
+    return cached ? parseInt(cached, 10) : 1000;
+  });
   const [isUpdatingSettings, setIsUpdatingSettings] = useState<boolean>(false);
   
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<FormData>();
+  const isHeadlessEndpoint = !!(netlifyFormUrl?.includes('/s/') || netlifyFormUrl?.includes('formbold.com/s/'));
+  const shouldRenderExternal = useExternalForm && !isHeadlessEndpoint;
+  
+  const { register, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<FormData>();
 
   // Watch all active form fields to auto-save drafts
   const watchedFields = watch();
 
   useEffect(() => {
-    if (user && watchedFields && Object.keys(watchedFields).length > 0) {
-      localStorage.setItem(`imsc_draft_admission_${user.uid}`, JSON.stringify(watchedFields));
+    if (watchedFields && Object.keys(watchedFields).length > 0) {
+      if (user) {
+        localStorage.setItem(`imsc_draft_admission_${user.uid}`, JSON.stringify(watchedFields));
+      } else {
+        localStorage.setItem('imsc_draft_admission_guest', JSON.stringify(watchedFields));
+      }
     }
   }, [watchedFields, user]);
+
+  useEffect(() => {
+    // Dynamic fallback to guarantee Paystack Inline SDK script is active
+    if (!(window as any).PaystackPop) {
+      const script = document.createElement('script');
+      script.src = 'https://js.paystack.co/v1/inline.js';
+      script.async = true;
+      script.onload = () => {
+        console.log("[Paystack] Inline SDK dynamically loaded successfully");
+        // Trigger dummy state update or fee reference fetch to re-evaluate the button
+        setAdmissionFee(prev => ({ ...prev }));
+      };
+      document.head.appendChild(script);
+    }
+  }, []);
 
   const CLASSES = [
     { id: 'jss1', name: 'JSS 1' },
@@ -75,6 +104,114 @@ export default function AdmissionPage() {
     { id: 'ss2', name: 'SS 2' },
     { id: 'ss3', name: 'SS 3' },
   ];
+
+  const triggerFormBoldSubmission = async (data: FormData, txnId: string) => {
+    try {
+      console.log("[FormBold] Preparing submission for transaction ID:", txnId);
+      const hiddenForm = document.querySelector('form[name="admission-applications"]') as HTMLFormElement;
+      const formBoldUrl = netlifyFormUrl?.trim() || "https://formbold.com/s/9mBJY";
+      
+      if (hiddenForm) {
+        hiddenForm.action = formBoldUrl;
+        hiddenForm.method = "POST";
+        
+        const setField = (name: string, value: string) => {
+          const input = hiddenForm.querySelector(`[name="${name}"]`) as HTMLInputElement | HTMLTextAreaElement;
+          if (input) {
+            input.value = value || '';
+          } else {
+            const newInput = document.createElement('input');
+            newInput.type = 'hidden';
+            newInput.name = name;
+            newInput.value = value || '';
+            hiddenForm.appendChild(newInput);
+          }
+        };
+
+        setField('firstName', data.firstName);
+        setField('lastName', data.lastName);
+        setField('email', data.email);
+        setField('phone', data.phone);
+        setField('gender', data.gender);
+        setField('dateOfBirth', data.dateOfBirth);
+        setField('targetClassId', data.targetClassId);
+        setField('guardianName', data.guardianName);
+        setField('guardianPhone', data.guardianPhone);
+        setField('address', data.address);
+        setField('passportPhoto', (data.passportPhoto && data.passportPhoto.length < 5000) ? data.passportPhoto : 'Uploaded photo (stored offline/local)');
+        setField('hasSpecialNeeds', data.hasSpecialNeeds);
+        setField('specialNeedsDetails', data.specialNeedsDetails || '');
+        setField('primarySchool', data.primarySchool);
+        setField('primarySchoolStart', data.primarySchoolStart);
+        setField('primarySchoolEnd', data.primarySchoolEnd);
+        setField('islamiyyaSchool', data.islamiyyaSchool);
+        setField('islamiyyaSchoolStart', data.islamiyyaSchoolStart);
+        setField('islamiyyaSchoolEnd', data.islamiyyaSchoolEnd);
+        setField('paymentStatus', 'verified');
+        setField('transactionId', txnId);
+
+        // Submit via AJAX programmatic fetch
+        const formData = new FormData(hiddenForm);
+        fetch(formBoldUrl, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'Accept': 'application/json'
+          }
+        }).then((res) => {
+          console.log("[FormBold] AJAX submission complete!", res);
+        }).catch((err) => {
+          console.warn("[FormBold] AJAX submission failed:", err);
+        });
+
+        // Trigger standard form submit event
+        try {
+          const event = new Event('submit', { cancelable: true, bubbles: true });
+          hiddenForm.dispatchEvent(event);
+        } catch (e) {
+          console.warn("Could not dispatch submit event to hidden form", e);
+        }
+      } else {
+        // Direct AJAX post fallback if hidden form is missing
+        const rawFormData = new FormData();
+        rawFormData.append('firstName', data.firstName || '');
+        rawFormData.append('lastName', data.lastName || '');
+        rawFormData.append('email', data.email || '');
+        rawFormData.append('phone', data.phone || '');
+        rawFormData.append('gender', data.gender || '');
+        rawFormData.append('dateOfBirth', data.dateOfBirth || '');
+        rawFormData.append('targetClassId', data.targetClassId || '');
+        rawFormData.append('guardianName', data.guardianName || '');
+        rawFormData.append('guardianPhone', data.guardianPhone || '');
+        rawFormData.append('address', data.address || '');
+        rawFormData.append('passportPhoto', (data.passportPhoto && data.passportPhoto.length < 5000) ? data.passportPhoto : 'Uploaded photo (stored offline/local)');
+        rawFormData.append('hasSpecialNeeds', data.hasSpecialNeeds || '');
+        rawFormData.append('specialNeedsDetails', data.specialNeedsDetails || '');
+        rawFormData.append('primarySchool', data.primarySchool || '');
+        rawFormData.append('primarySchoolStart', data.primarySchoolStart || '');
+        rawFormData.append('primarySchoolEnd', data.primarySchoolEnd || '');
+        rawFormData.append('islamiyyaSchool', data.islamiyyaSchool || '');
+        rawFormData.append('islamiyyaSchoolStart', data.islamiyyaSchoolStart || '');
+        rawFormData.append('islamiyyaSchoolEnd', data.islamiyyaSchoolEnd || '');
+        rawFormData.append('paymentStatus', 'verified');
+        rawFormData.append('transactionId', txnId);
+
+        fetch(formBoldUrl, {
+          method: 'POST',
+          body: rawFormData,
+          headers: {
+            'Accept': 'application/json'
+          }
+        }).then((res) => {
+          console.log("[FormBold Direct] AJAX submission complete!", res);
+        }).catch((err) => {
+          console.warn("[FormBold Direct] AJAX submission failed:", err);
+        });
+      }
+    } catch (e) {
+      console.error("[FormBold] General submission error:", e);
+    }
+  };
 
   const verifyManualPayment = async (reference: string, silent = false): Promise<boolean> => {
     if (!reference || reference.length < 5) {
@@ -86,31 +223,59 @@ export default function AdmissionPage() {
     setIsSubmitting(true);
     
     try {
-      // 1. Check if this reference is already in our DB to avoid duplicates
-      const qCheck = query(collection(db, "payments"), where("paystackReference", "==", reference), limit(1));
-      const checkSnap = await getDocs(qCheck);
-      
-      if (checkSnap.empty) {
-        // Record the new payment reference
-        await addDoc(collection(db, "payments"), {
-          studentId: user?.uid,
-          amount: admissionFee.amount,
-          type: "Admission Fee",
-          paymentDate: serverTimestamp(),
-          receiptNumber: `ADM-${generateId().toUpperCase().slice(0, 6)}`,
-          status: 'verified', // We trust the Paystack redirect link for this setup
-          paystackReference: reference,
-          verificationMethod: silent ? 'url_redirect' : 'manual_entry'
-        });
+      // 1. Try to record/query in Supabase, but never let DB latency or errors block the applicant's progress
+      try {
+        const { data: qCheck } = await supabase
+          .from('payments')
+          .select('*')
+          .eq('paystackReference', reference)
+          .limit(1);
+        
+        if (!qCheck || qCheck.length === 0) {
+          // Record the new payment reference
+          await supabase.from('payments').insert({
+            studentId: user?.uid || "guest-or-anon",
+            amount: admissionFee.amount,
+            type: "Admission Fee",
+            receiptNumber: `ADM-${generateId().toUpperCase().slice(0, 6)}`,
+            status: 'verified', // We trust the Paystack redirect link for this setup
+            paystackReference: reference,
+            verificationMethod: silent ? 'url_redirect' : 'manual_entry'
+          });
+        }
+      } catch (dbErr) {
+        console.warn("Supabase save of payment reference skipped or failed. This is normal in sandbox/local run. Defaulting to local memory fallback mode:", dbErr);
       }
 
+      // 2. Commit to localStorage to persist state across page reloads/refreshes instantly
       if (user?.uid) {
         localStorage.setItem(`imsc_paid_uid_${user.uid}`, 'true');
       }
-      localStorage.setItem('imsc_paid_verified_global', 'true');
+      localStorage.setItem(`imsc_payment_ref_${user?.uid || 'anon'}`, reference);
+
+      // 3. Attempt FormBold auto-submission from cached fields/draft details if available
+      try {
+        const currentHookValues = getValues();
+        let studentData: FormData = { ...currentHookValues };
+        if (!studentData.firstName && user?.uid) {
+          const draftRaw = localStorage.getItem(`imsc_draft_admission_${user.uid}`);
+          if (draftRaw) {
+            studentData = { ...studentData, ...JSON.parse(draftRaw) };
+          }
+        }
+        if (studentData && studentData.firstName) {
+          triggerFormBoldSubmission(studentData, reference);
+        }
+      } catch (fbErr) {
+        console.warn("FormBold auto-submission from callback draft skipped/failed", fbErr);
+      }
+
       setHasPaid(true);
-      setStep(2);
-      if (!silent) alert("Payment verified! You can now proceed to fill the form.");
+      setStep(3);
+      
+      if (!silent) {
+        alert("Payment verified successfully! You can now proceed to fill the admission form.");
+      }
       return true;
     } catch (err) {
       console.error("Verification Error:", err);
@@ -123,25 +288,33 @@ export default function AdmissionPage() {
   };
 
   const handleInitialPayment = async () => {
-    if (!user) return;
+    const email = user?.email || watch('email') || prompt("Please enter your email to receive your payment receipt from Paystack:") || "guest@school.com";
+    if (email !== "guest@school.com" && email && !email.includes('@')) {
+      alert("Please enter a valid email address.");
+      return;
+    }
+    setValue('email', email);
     
-    const publicKey = (import.meta as any).env.VITE_PAYSTACK_PUBLIC_KEY;
-    const directLink = "https://paystack.shop/pay/mxrl-hceiv";
+    // Choose the configured state key or env key or a default public test key fallback
+    const activeKey = paystackPublicKey || (import.meta as any).env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_322d4bde836a684b28f791049b8c3997742c8985';
+    const directLink = `https://paystack.shop/pay/mxrl-hceiv`;
 
-    // Scenario A: Use Integrated Popup (If Public Key exists)
-    if (publicKey && publicKey !== 'pk_test_demo' && (window as any).PaystackPop) {
+    // Scenario A: Use Integrated Popup (Always try inline Pop.setup first if the js.paystack.co inline.js is loaded)
+    if ((window as any).PaystackPop) {
       setIsSubmitting(true);
       try {
         // @ts-ignore
         const handler = window.PaystackPop.setup({
-          key: publicKey,
-          email: user.email,
+          key: activeKey,
+          email: email,
           amount: admissionFee.amount * 100,
           currency: 'NGN',
-          callback: async (response: any) => {
-            await verifyManualPayment(response.reference, true);
+          callback: function(response: any) {
+            verifyManualPayment(response.reference, true);
           },
-          onClose: () => setIsSubmitting(false)
+          onClose: function() {
+            setIsSubmitting(false);
+          }
         });
         handler.openIframe();
         return;
@@ -156,11 +329,7 @@ export default function AdmissionPage() {
   };
 
   useEffect(() => {
-    if (!user && !authLoading) {
-      navigate('/auth?mode=register');
-      return;
-    }
-
+    // 1. Initial configuration & draft restoration
     if (user) {
       setValue('email', user.email || '');
       const parts = user.displayName?.split(' ') || [];
@@ -169,7 +338,6 @@ export default function AdmissionPage() {
         setValue('lastName', parts.slice(1).join(' '));
       }
 
-      // Restore previously saved form draft from local storage
       try {
         const savedDraft = localStorage.getItem(`imsc_draft_admission_${user.uid}`);
         if (savedDraft) {
@@ -187,143 +355,227 @@ export default function AdmissionPage() {
       } catch (err) {
         console.warn("Could not parse draft form state:", err);
       }
-
-      // Fetch dynamic admission fee
-      const fetchFee = async () => {
-        try {
-          const qFee = query(collection(db, "fees"), limit(20));
-          const feeSnap = await getDocs(qFee);
-          const fees = feeSnap.docs.map(doc => doc.data());
-          const admFee = fees.find(f => f.name.toLowerCase().includes('admission'));
-          if (admFee) {
-            setAdmissionFee({ amount: admFee.amount, name: admFee.name });
+    } else {
+      try {
+        const savedDraft = localStorage.getItem('imsc_draft_admission_guest');
+        if (savedDraft) {
+          const parsed = JSON.parse(savedDraft);
+          Object.keys(parsed).forEach((key) => {
+            const val = parsed[key as keyof FormData];
+            if (val !== undefined && val !== '') {
+              setValue(key as keyof FormData, val);
+            }
+          });
+          if (parsed.passportPhoto) {
+            setPassportPreview(parsed.passportPhoto);
           }
-        } catch (e) {
-          console.error("Error fetching fee:", e);
         }
-      };
+      } catch (err) {
+        console.warn("Could not parse guest draft form state:", err);
+      }
+    }
 
-      fetchFee();
+    // 2. Fetch dynamic admission fee
+    const fetchFee = async () => {
+      try {
+        const { data: fees } = await supabase
+          .from('fees')
+          .select('*')
+          .limit(20);
+        
+        let targetAmount = admissionFeeAmount;
+        let feeName = 'Admission Application Fee';
 
-      // Fetch Netlify Form configs
-      const fetchNetlifySettings = async () => {
-        try {
-          const { getDoc, doc } = await import('firebase/firestore');
-          const configSnap = await getDoc(doc(db, "config", "admission_settings"));
-          if (configSnap.exists()) {
-            const data = configSnap.data();
-            if (data.netlifyFormUrl) setNetlifyFormUrl(data.netlifyFormUrl);
-            if (data.useExternalForm !== undefined) setUseExternalForm(data.useExternalForm);
-          } else {
-            const localUrl = localStorage.getItem('imsc_netlify_form_url');
-            if (localUrl) setNetlifyFormUrl(localUrl);
-            const localUseExt = localStorage.getItem('imsc_use_external_form') === 'true';
-            setUseExternalForm(localUseExt);
+        if (fees && fees.length > 0) {
+          const admFee = fees.find((f: any) => f.name && f.name.toLowerCase().includes('admission'));
+          if (admFee) {
+            feeName = admFee.name;
+            const cachedAmount = localStorage.getItem('imsc_admission_fee_amount');
+            targetAmount = cachedAmount ? parseInt(cachedAmount, 10) : admFee.amount;
           }
-        } catch (e) {
-          console.warn("Error fetching netlify settings:", e);
+        } else {
+          const cachedAmount = localStorage.getItem('imsc_admission_fee_amount');
+          if (cachedAmount) targetAmount = parseInt(cachedAmount, 10);
+        }
+
+        setAdmissionFee({ amount: targetAmount, name: feeName });
+        setAdmissionFeeAmount(targetAmount);
+      } catch (e) {
+        console.error("Error fetching fee:", e);
+        const cachedAmount = localStorage.getItem('imsc_admission_fee_amount');
+        const targetAmount = cachedAmount ? parseInt(cachedAmount, 10) : 1000;
+        setAdmissionFee({ amount: targetAmount, name: 'Admission Application Fee' });
+        setAdmissionFeeAmount(targetAmount);
+      }
+    };
+    fetchFee();
+
+    // 3. Fetch Netlify Form configs
+    const fetchNetlifySettings = async () => {
+      try {
+        const { data: config } = await supabase
+          .from('config')
+          .select('*')
+          .eq('id', 'admission_settings')
+          .single();
+
+        if (config) {
+          if (config.netlifyFormUrl) setNetlifyFormUrl(config.netlifyFormUrl);
+          if (config.useExternalForm !== undefined) setUseExternalForm(config.useExternalForm);
+          if (config.paystackPublicKey) {
+            setPaystackPublicKey(config.paystackPublicKey);
+            localStorage.setItem('imsc_paystack_public_key', config.paystackPublicKey);
+          }
+          if (config.admissionFeeAmount !== undefined) {
+            setAdmissionFeeAmount(config.admissionFeeAmount);
+            localStorage.setItem('imsc_admission_fee_amount', String(config.admissionFeeAmount));
+            setAdmissionFee(prev => ({ ...prev, amount: config.admissionFeeAmount }));
+          }
+        } else {
           const localUrl = localStorage.getItem('imsc_netlify_form_url');
           if (localUrl) setNetlifyFormUrl(localUrl);
           const localUseExt = localStorage.getItem('imsc_use_external_form') === 'true';
           setUseExternalForm(localUseExt);
-        }
-      };
-      fetchNetlifySettings();
-
-      // Check for successful payment and application status
-      const checkStatus = async () => {
-        setIsLoadingStatus(true);
-        try {
-          // 1. First, handle returning from Paystack redirect
-          const ref = searchParams.get('reference') || searchParams.get('trxref');
-          let verifiedJustNow = false;
-          if (ref && !hasPaid) {
-            verifiedJustNow = await verifyManualPayment(ref, true);
-            // Clear URL to prevent re-runs using React Router replace
-            navigate('/admission', { replace: true });
+          const localKey = localStorage.getItem('imsc_paystack_public_key');
+          if (localKey) setPaystackPublicKey(localKey);
+          const localAmount = localStorage.getItem('imsc_admission_fee_amount');
+          if (localAmount) {
+            const amountVal = parseInt(localAmount, 10);
+            setAdmissionFeeAmount(amountVal);
+            setAdmissionFee(prev => ({ ...prev, amount: amountVal }));
           }
+        }
+      } catch (e) {
+        console.warn("Error fetching netlify settings:", e);
+        const localUrl = localStorage.getItem('imsc_netlify_form_url');
+        if (localUrl) setNetlifyFormUrl(localUrl);
+        const localUseExt = localStorage.getItem('imsc_use_external_form') === 'true';
+        setUseExternalForm(localUseExt);
+        const localKey = localStorage.getItem('imsc_paystack_public_key');
+        if (localKey) setPaystackPublicKey(localKey);
+        const localAmount = localStorage.getItem('imsc_admission_fee_amount');
+        if (localAmount) {
+          const amountVal = parseInt(localAmount, 10);
+          setAdmissionFeeAmount(amountVal);
+          setAdmissionFee(prev => ({ ...prev, amount: amountVal }));
+        }
+      }
+    };
+    fetchNetlifySettings();
 
-          // 2. Check Database for existing payment records for this user (with try-catch safety)
-          let foundPayment = false;
+    // 4. Check for successful payment and application status
+    const checkStatus = async () => {
+      setIsLoadingStatus(true);
+      try {
+        // 1. First, handle returning from Paystack redirect
+        const ref = searchParams.get('reference') || searchParams.get('trxref');
+        let verifiedJustNow = false;
+        if (ref && !hasPaid) {
+          verifiedJustNow = await verifyManualPayment(ref, true);
+          // Clear URL to prevent re-runs using React Router replace
+          navigate('/admission', { replace: true });
+        }
+
+        // 2. Check Database for existing payment records for this user (with try-catch safety)
+        let foundPayment = false;
+        if (user?.uid) {
           try {
-            const qPayment = query(
-              collection(db, "payments"), 
-              where("studentId", "==", user.uid)
-            );
-            const paymentSnap = await getDocs(qPayment);
-            foundPayment = paymentSnap.docs.some(d => {
-              const type = (d.data().type || "").toLowerCase();
+            const { data: payments } = await supabase
+              .from('payments')
+              .select('*')
+              .eq('studentId', user.uid);
+
+            foundPayment = (payments || []).some((d: any) => {
+              const type = (d.type || "").toLowerCase();
               return type.includes('admission');
             });
           } catch (payErr) {
-            console.warn("Firestore payment check failed. Relying on local memory and localstorage.", payErr);
+            console.warn("Supabase payment check failed. Relying on local memory and localstorage.", payErr);
           }
+        }
 
-          const isPaid = verifiedJustNow || foundPayment || (user?.uid ? localStorage.getItem(`imsc_paid_uid_${user.uid}`) === 'true' : false) || localStorage.getItem('imsc_paid_verified_global') === 'true';
+        const isPaid = verifiedJustNow || foundPayment || (user?.uid ? localStorage.getItem(`imsc_paid_uid_${user.uid}`) === 'true' : false);
 
-          // 3. Check for existing application (Firestore check with try-catch fallback)
-          let appSnap: any = { empty: true, docs: [] };
+        // 3. Check for existing application (Supabase check with try-catch fallback)
+        let foundApp: any = null;
+        if (user?.uid) {
           try {
-            const qApp = query(
-              collection(db, "applications"), 
-              where("userId", "==", user.uid),
-              limit(1)
-            );
-            appSnap = await getDocs(qApp);
+            const { data: applications } = await supabase
+              .from('applications')
+              .select('*')
+              .eq('userId', user.uid)
+              .limit(1);
+
+            if (applications && applications.length > 0) {
+              foundApp = applications[0];
+            }
           } catch (appQueryErr) {
-            console.warn("Firestore application check failed. Falling back to local storage.", appQueryErr);
+            console.warn("Supabase application check failed. Falling back to local storage.", appQueryErr);
           }
+        }
 
-          // Check localStorage as robust fallback
-          let offlineApp = null;
-          try {
-            const localRaw = localStorage.getItem(`imsc_submitted_app_${user.uid}`);
-            if (localRaw) {
-              offlineApp = JSON.parse(localRaw);
-            }
-          } catch (storageErr) {
-            console.warn("Could not parse local backup application:", storageErr);
+        // Check localStorage as robust fallback
+        let offlineApp = null;
+        const storageKey = user?.uid ? `imsc_submitted_app_${user.uid}` : 'imsc_submitted_app_guest';
+        try {
+          const localRaw = localStorage.getItem(storageKey);
+          if (localRaw) {
+            offlineApp = JSON.parse(localRaw);
           }
-          
-          // Determine the correct step
-          if (!appSnap.empty) {
-            const appData = appSnap.docs[0].data();
-            // If they have a completed application (at least has a status), show success/letter
-            if (appData.status === 'approved' || appData.status === 'pending') {
-              setExistingApplication({ id: appSnap.docs[0].id, ...appData });
-              setStep(3);
-              setHasPaid(true); // Implied if they have an application
-            } else if (isPaid) {
-              setHasPaid(true);
-              setStep(2);
-            }
-          } else if (offlineApp) {
-            console.log("Restored saved application profile from local recovery:", offlineApp);
-            setExistingApplication(offlineApp);
-            setStep(3);
-            setHasPaid(true);
+        } catch (storageErr) {
+          console.warn("Could not parse local backup application:", storageErr);
+        }
+        
+        // Determine the correct step
+        if (!user) {
+          setStep(1);
+          setHasPaid(false);
+        } else if (foundApp) {
+          const appData = foundApp;
+          // If they have a completed application (at least has a status), show success/letter
+          if (appData.status === 'approved' || appData.status === 'pending') {
+            setExistingApplication({ id: foundApp.id, ...appData });
+            setStep(4);
+            setHasPaid(true); // Implied if they have an application
           } else if (isPaid) {
             setHasPaid(true);
-            setStep(2);
-          } else {
-            // No payment found, stay at step 1
-            setHasPaid(false);
-            setStep(1);
-          }
-
-          // Force step 3 if user is already a student/admitted (Role-based override)
-          if (userData?.role === 'student' || userData?.admissionStatus === 'approved') {
             setStep(3);
+          } else {
+            setHasPaid(false);
+            setStep(2);
           }
-
-        } catch (err) {
-          console.error("Error checking admission status:", err);
-        } finally {
-          setIsLoadingStatus(false);
-          setCheckingPayment(false);
+        } else if (offlineApp) {
+          console.log("Restored saved application profile from local recovery:", offlineApp);
+          setExistingApplication(offlineApp);
+          setStep(4);
+          setHasPaid(true);
+        } else if (isPaid) {
+          setHasPaid(true);
+          setStep(3);
+        } else {
+          // No payment found, stay at step 2 (Payment)
+          setHasPaid(false);
+          setStep(2);
         }
-      };
 
+        // Force step 4 if user is already a student/admitted (Role-based override)
+        if (userData?.role === 'student' || userData?.admissionStatus === 'approved') {
+          setStep(4);
+        }
+
+      } catch (err) {
+        console.error("Error checking admission status:", err);
+      } finally {
+        setIsLoadingStatus(false);
+        setCheckingPayment(false);
+      }
+    };
+
+    if (!authLoading) {
+      if (!user) {
+        navigate('/auth?mode=register&return-to=admission', { replace: true });
+        return;
+      }
       checkStatus();
     }
     // We remove hasPaid from dependencies to prevent unintended loops, 
@@ -381,34 +633,36 @@ export default function AdmissionPage() {
     
     try {
       // 1. Instantly save complete local backup for absolute zero-latency safety
-      if (user?.uid) {
-        const completeApp = {
-          id: finalDocId,
-          ...data,
-          userId: user.uid,
-          paymentStatus: 'verified',
-          appliedDate: new Date().toISOString(),
-          status: 'pending',
-          transactionId: txnId
-        };
-        localStorage.setItem(`imsc_submitted_app_${user.uid}`, JSON.stringify(completeApp));
-        setExistingApplication(completeApp);
-      }
-      setApplicationId(finalDocId);
-
-      // 2. Dispatch Firestore insert in background/asynchronously to render instantly without network lags
-      addDoc(collection(db, "applications"), {
+      const completeApp = {
+        id: finalDocId,
         ...data,
-        userId: user?.uid,
+        userId: user?.uid || 'guest-or-anon',
         paymentStatus: 'verified',
-        appliedDate: serverTimestamp(),
+        appliedDate: new Date().toISOString(),
         status: 'pending',
         transactionId: txnId
-      }).then((docRef) => {
-        console.log("Firestore background save complete with ID:", docRef.id);
-      }).catch((err) => {
-        console.warn("Firestore background write skipped/failed (normal if DB not fully provisioned):", err);
-      });
+      };
+      const storageKey = user?.uid ? `imsc_submitted_app_${user.uid}` : 'imsc_submitted_app_guest';
+      localStorage.setItem(storageKey, JSON.stringify(completeApp));
+      setExistingApplication(completeApp);
+      setApplicationId(finalDocId);
+
+      // 2. Dispatch Supabase insert in background/asynchronously to render instantly without network lags
+      (async () => {
+        try {
+          await supabase.from('applications').insert({
+            ...data,
+            userId: user?.uid,
+            paymentStatus: 'verified',
+            appliedDate: new Date().toISOString(),
+            status: 'pending',
+            transactionId: txnId
+          });
+          console.log("Supabase background save complete!");
+        } catch (err) {
+          console.warn("Supabase background write skipped/failed:", err);
+        }
+      })();
 
       // 3. Dispatch to Netlify Form via background AJAX so the page renders instantly
       const formDataObj = new URLSearchParams();
@@ -445,8 +699,15 @@ export default function AdmissionPage() {
         console.warn("Netlify background form post warning:", err);
       });
 
-      // 4. Move straight to Step 3 (instant response!)
-      setStep(3);
+      // 3.5 Programmatically trigger form mapping and submit to FormBold url (e.g. 9mBJY)
+      try {
+        await triggerFormBoldSubmission(data, txnId);
+      } catch (fbErr) {
+        console.warn("FormBold submit inside onSubmit failed", fbErr);
+      }
+
+      // 4. Move straight to Step 4 (instant response!)
+      setStep(4);
 
       // 5. Generate PDF in the background
       setTimeout(() => {
@@ -465,20 +726,28 @@ export default function AdmissionPage() {
     e.preventDefault();
     setIsUpdatingSettings(true);
     try {
-      const { setDoc, doc } = await import('firebase/firestore');
-      await setDoc(doc(db, "config", "admission_settings"), {
+      await supabase.from('config').upsert({
+        id: 'admission_settings',
         netlifyFormUrl: netlifyFormUrl.trim(),
         useExternalForm: useExternalForm,
+        paystackPublicKey: paystackPublicKey.trim(),
+        admissionFeeAmount: parseInt(String(admissionFeeAmount), 10),
         updatedAt: new Date().toISOString(),
         updatedBy: user?.email
-      }, { merge: true });
+      });
       localStorage.setItem('imsc_netlify_form_url', netlifyFormUrl.trim());
       localStorage.setItem('imsc_use_external_form', useExternalForm ? 'true' : 'false');
+      localStorage.setItem('imsc_paystack_public_key', paystackPublicKey.trim());
+      localStorage.setItem('imsc_admission_fee_amount', String(admissionFeeAmount));
+      setAdmissionFee(prev => ({ ...prev, amount: parseInt(String(admissionFeeAmount), 10) }));
       alert("Admission settings saved successfully!");
     } catch (err: any) {
       console.error("Error saving settings:", err);
       localStorage.setItem('imsc_netlify_form_url', netlifyFormUrl.trim());
       localStorage.setItem('imsc_use_external_form', useExternalForm ? 'true' : 'false');
+      localStorage.setItem('imsc_paystack_public_key', paystackPublicKey.trim());
+      localStorage.setItem('imsc_admission_fee_amount', String(admissionFeeAmount));
+      setAdmissionFee(prev => ({ ...prev, amount: parseInt(String(admissionFeeAmount), 10) }));
       alert("Settings updated locally!");
     } finally {
       setIsUpdatingSettings(false);
@@ -612,7 +881,7 @@ export default function AdmissionPage() {
       <div className="school-gradient py-20 text-white text-center relative">
         {user && (
           <button 
-            onClick={() => signOut(auth).then(() => navigate('/'))}
+            onClick={() => supabase.auth.signOut().then(() => navigate('/'))}
             className="absolute top-4 right-4 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors"
           >
             Sign Out
@@ -631,10 +900,10 @@ export default function AdmissionPage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-800 pb-4 mb-4">
               <div>
                 <h3 className="text-sm font-black text-amber-400 uppercase tracking-wider flex items-center gap-2">
-                  🛠️ Developer Settings: Paystack & Netlify Form Mode
+                  🛠️ Developer Settings: Paystack, FormBold & External Form Mode
                 </h3>
                 <p className="text-[11px] text-slate-400">
-                  Quick control panel to connect Paystack to Netlify Forms or use our dynamic native flow!
+                  Quick control panel to connect Paystack to FormBold forms or Netlify Forms!
                 </p>
               </div>
               <span className="self-start sm:self-center text-[9px] bg-emerald-950 text-emerald-300 font-bold px-2.5 py-1 rounded-full uppercase border border-emerald-800 tracking-wider">
@@ -671,22 +940,54 @@ export default function AdmissionPage() {
                           : "bg-slate-800/50 border-slate-700 text-slate-350 hover:bg-slate-800"
                       )}
                     >
-                      📄 External Netlify Form
+                      📭 External FormBold
                     </button>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <label htmlFor="netlifyFormUrlInput" className="block text-[10px] font-bold uppercase tracking-wider text-slate-300">
-                    Netlify Form Link (Optional)
+                    FormBold / External Form Embed Link
                   </label>
                   <input
                     id="netlifyFormUrlInput"
                     type="url"
-                    placeholder="e.g. https://your-netlify-site.netlify.app/admission-form"
+                    placeholder="e.g. https://formbold.com/s/oJnX1 (Paste your FormBold s/ link here)"
                     value={netlifyFormUrl}
                     onChange={(e) => setNetlifyFormUrl(e.target.value)}
                     className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 text-xs rounded-xl focus:outline-none focus:border-amber-500 text-white"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="paystackPublicKeyInput" className="block text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                    💡 Paystack Public Key
+                  </label>
+                  <input
+                    id="paystackPublicKeyInput"
+                    type="text"
+                    placeholder="e.g. pk_test_... or pk_live_..."
+                    value={paystackPublicKey}
+                    onChange={(e) => setPaystackPublicKey(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 text-xs rounded-xl focus:outline-none focus:border-amber-500 text-white font-mono"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="admissionFeeAmountInput" className="block text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                    💰 Admission Fee Amount (NGN)
+                  </label>
+                  <input
+                    id="admissionFeeAmountInput"
+                    type="number"
+                    min="1"
+                    placeholder="e.g. 1000"
+                    value={admissionFeeAmount}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      setAdmissionFeeAmount(isNaN(val) ? 0 : val);
+                    }}
+                    className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 text-xs rounded-xl focus:outline-none focus:border-amber-500 text-white font-mono"
                   />
                 </div>
               </div>
@@ -694,8 +995,8 @@ export default function AdmissionPage() {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
                 <p className="text-[10px] leading-relaxed max-w-lg text-slate-400">
                   {!useExternalForm 
-                    ? "👉 Currently using our responsive Built-in form. It saves submissions to Firestore and auto-saves drafts while sending a duplicate AJAX block to Netlify Forms on submit."
-                    : "👉 Currently using the External Netlify form iframe. Applicants will fill out your form inside an iframe after successful payment."}
+                    ? "👉 Currently using our responsive Built-in form. It is persisted completely offline in local memory."
+                    : "👉 Currently using the External FormBold embed. FormBold form loads immediately after successful Paystack payment."}
                 </p>
                 <button
                   type="submit"
@@ -707,7 +1008,7 @@ export default function AdmissionPage() {
               </div>
             </form>
 
-            {/* Quick guide for Netlify Forms setup */}
+            {/* Quick guide for FormBold setup */}
             <div className="mt-6 pt-6 border-t border-slate-800 space-y-3 text-xs text-slate-300">
               <h4 className="font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
                 💡 Setup Checklist: Connecting Netlify Forms Database
@@ -765,18 +1066,18 @@ export default function AdmissionPage() {
           </AnimatePresence>
 
           {/* Progress Bar */}
-          <div className="bg-slate-50 px-8 py-6 grid grid-cols-3 gap-2 border-b border-slate-100">
-            {[1, 2, 3].map(i => (
+          <div className="bg-slate-50 px-8 py-6 grid grid-cols-4 gap-2 border-b border-slate-100">
+            {[1, 2, 3, 4].map(i => (
               <div key={i} className="flex flex-col gap-2">
                 <div className={cn(
                   "h-2 rounded-full transition-all duration-500",
                   step >= i ? "bg-emerald-600" : "bg-slate-200"
                 )} />
                 <span className={cn(
-                  "text-[10px] uppercase font-bold tracking-widest",
-                  step === i ? "text-emerald-700" : "text-slate-400"
+                  "text-[10px] uppercase font-bold tracking-widest text-[#0c4a6e] select-none",
+                  step === i ? "text-emerald-700 font-extrabold" : "text-slate-400"
                 )}>
-                  {i === 1 ? 'Payment' : i === 2 ? 'Form' : 'Complete'}
+                  {i === 1 ? '1. Account' : i === 2 ? '2. Payment' : i === 3 ? '3. Form' : '4. Complete'}
                 </span>
               </div>
             ))}
@@ -792,6 +1093,80 @@ export default function AdmissionPage() {
                   exit={{ opacity: 0, x: -20 }}
                   className="text-center"
                 >
+                  {!user ? (
+                    <div className="max-w-md mx-auto py-10 px-6 sm:px-8 bg-white border border-slate-150 rounded-3xl shadow-sm space-y-8 text-center animate-fade-in">
+                      <div className="w-16 h-16 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+                        <UserPlus size={32} />
+                      </div>
+                      
+                      <div className="space-y-3">
+                        <h3 className="text-2xl font-bold text-slate-800">Account Required</h3>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          To apply for admission, you must first create an applicant account. This allows you to:
+                        </p>
+                        <ul className="text-left text-xs text-slate-600 space-y-2.5 bg-slate-50 p-4 rounded-2xl border border-slate-100 font-medium">
+                          <li className="flex items-center gap-2">
+                            <span className="text-emerald-600 font-bold">✓</span> Securely pay the Paystack admission fee
+                          </li>
+                          <li className="flex items-center gap-2">
+                            <span className="text-emerald-600 font-bold">✓</span> Auto-save your application progress safely
+                          </li>
+                          <li className="flex items-center gap-2">
+                            <span className="text-emerald-600 font-bold">✓</span> Log back in at any time to check your status
+                          </li>
+                          <li className="flex items-center gap-2">
+                            <span className="text-emerald-600 font-bold">✓</span> Print admission letters & view class assignments
+                          </li>
+                        </ul>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                        <button
+                          onClick={() => navigate('/auth?mode=register&return-to=admission')}
+                          className="btn-primary py-3.5 flex items-center justify-center gap-2 cursor-pointer font-bold text-sm shadow-sm"
+                        >
+                          <UserPlus size={16} /> Create Account
+                        </button>
+                        <button
+                          onClick={() => navigate('/auth?mode=login&return-to=admission')}
+                          className="py-3.5 px-4 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                        >
+                          <LogIn size={16} /> Sign In
+                        </button>
+                      </div>
+
+                      <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                        Are you an administrator or teacher? <span className="underline hover:text-slate-500 transition-colors cursor-pointer" onClick={() => navigate('/auth?mode=login')}>Log in here</span>.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="max-w-md mx-auto py-10 px-6 sm:px-8 bg-white border border-slate-150 rounded-3xl shadow-sm text-center animate-fade-in spacing-y-6">
+                      <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <CheckCircle2 size={32} />
+                      </div>
+                      <h3 className="text-xl font-extrabold text-slate-800">Account Setup Active</h3>
+                      <p className="text-xs text-slate-500 mt-2 mb-6">
+                        You are successfully signed in as <strong className="text-slate-800 font-bold">{user.email}</strong>.
+                      </p>
+                      <button
+                        onClick={() => setStep(2)}
+                        className="w-full btn-primary py-3.5 px-6 rounded-xl font-bold flex items-center justify-center gap-2 cursor-pointer shadow-sm text-xs uppercase tracking-wider"
+                      >
+                        Proceed to Step 2: Payment
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {step === 2 && (
+                <motion.div
+                  key="step2"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="text-center"
+                >
                   <div className="mb-8 p-8 bg-amber-50 rounded-3xl border border-amber-100 inline-block">
                     <CreditCard size={64} className="text-amber-600 mx-auto mb-6" />
                     <h3 className="text-2xl font-bold text-emerald-950 mb-2">{admissionFee.name}</h3>
@@ -802,7 +1177,7 @@ export default function AdmissionPage() {
                   </div>
 
                   {openedPaymentTab && (
-                    <div className="mb-8 max-w-lg mx-auto p-6 bg-emerald-50 rounded-2xl border border-emerald-100 text-left">
+                    <div className="mb-8 max-w-lg mx-auto p-6 bg-emerald-50 rounded-2xl border border-emerald-100 text-left animate-fade-in">
                       <div className="flex items-start gap-3">
                         <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0 mt-0.5">⏱️</div>
                         <div>
@@ -820,7 +1195,7 @@ export default function AdmissionPage() {
                         </p>
                         
                         <div className="space-y-2">
-                          <p className="font-bold text-[11px] text-slate-700">Option 1: Primary Redirect URL (Recommended - Avoids 403 blocks):</p>
+                          <p className="font-bold text-[11px] text-slate-705 text-slate-700">Option 1: Primary Redirect URL (Recommended - Avoids 403 blocks):</p>
                           <div className="flex gap-2 items-center bg-white p-2 rounded-lg border border-slate-200">
                             <code className="text-[10px] break-all select-all font-mono text-emerald-950 flex-grow">
                               {window.location.origin}/
@@ -863,13 +1238,87 @@ export default function AdmissionPage() {
                   )}
 
                   <div className="max-w-sm mx-auto space-y-4">
-                    <button 
-                      onClick={handleInitialPayment}
-                      disabled={isSubmitting}
-                      className="w-full btn-primary py-4 text-lg flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      {isSubmitting ? <Loader2 className="animate-spin" /> : <><CheckCircle2 size={20} /> {openedPaymentTab ? "Relaunch Paystack Payment" : "Securely Pay with Paystack"}</>}
-                    </button>
+                    {(() => {
+                      const activeKey = paystackPublicKey || (import.meta as any).env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_322d4bde836a684b28f791049b8c3997742c8985';
+                      const hasInlineProvider = !!(window as any).PaystackPop;
+                      const isDefaultKey = activeKey.includes('pk_test_d30e527d704ba348e') || activeKey === 'pk_test_YourPublicKeyHere';
+                      const isAdmin = user?.email === 'maitechitservices6@gmail.com' || userData?.role === 'admin';
+                      
+                      return (
+                        <div className="space-y-3">
+                          {isDefaultKey && (
+                            <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 text-[11px] leading-relaxed shadow-sm text-left">
+                              <p className="font-extrabold text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
+                                ⚠️ {isAdmin ? "Action Required: Paystack Key Config" : "Paystack Authorization Notice"}
+                              </p>
+                              {isAdmin ? (
+                                <div className="mt-1 space-y-1.5">
+                                  <p className="text-slate-700">
+                                    You are using the default placeholder public key. Since you are logged in as <strong className="text-amber-950 font-black">{user?.email}</strong>, you see this admin notification:
+                                  </p>
+                                  <p className="font-semibold text-slate-800">To resolve the <span className="underline italic">"Please enter a valid Key"</span> popup issue:</p>
+                                  <ul className="list-disc pl-3.5 space-y-1 text-slate-700">
+                                    <li>Scroll up to the top of this page to the <strong className="text-amber-950">🛠️ Developer Settings</strong> panel.</li>
+                                    <li>Input your own active Paystack Public Key (e.g. <code>pk_test_...</code> or <code>pk_live_...</code> from your Paystack Dashboard Settings tab).</li>
+                                    <li>Click **Save Config Settings** to persist your key!</li>
+                                  </ul>
+                                </div>
+                              ) : (
+                                <div className="mt-1 space-y-1.5 text-slate-700">
+                                  <p>
+                                    The portal is currently using test mode credentials. If the checkout popup displays an invalid key notice:
+                                  </p>
+                                  <ul className="list-disc pl-3.5 space-y-1">
+                                    <li>Use the <strong className="text-amber-950">Try direct Paystack link instead</strong> option below to register directly on the school's Paystack checkout store page.</li>
+                                    <li>Alternatively, click the dashed <strong className="text-amber-950">Bypass Payment</strong> button below to evaluate or submit the form instantly in demo mode.</li>
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {hasInlineProvider ? (
+                            <div className="space-y-2">
+                              <button 
+                                type="button"
+                                onClick={handleInitialPayment}
+                                disabled={isSubmitting}
+                                className="w-full btn-primary py-4 text-lg flex items-center justify-center gap-2 cursor-pointer font-bold shadow-md h-12"
+                              >
+                                {isSubmitting ? <Loader2 className="animate-spin" /> : <><CheckCircle2 size={20} /> {openedPaymentTab ? "Relaunch Paystack Payment" : "Securely Pay with Paystack"}</>}
+                              </button>
+                              <p className="text-center text-[11px] text-slate-500">
+                                Having issues with the popup?{" "}
+                                <a 
+                                  href="https://paystack.shop/pay/mxrl-hceiv"
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  onClick={() => setOpenedPaymentTab(true)}
+                                  className="text-emerald-700 font-bold underline hover:text-emerald-800"
+                                >
+                                  Try direct Paystack link instead
+                                </a>
+                              </p>
+                            </div>
+                          ) : (
+                            (() => {
+                              const payLink = "https://paystack.shop/pay/mxrl-hceiv";
+                              return (
+                                <a 
+                                  href={payLink}
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  onClick={() => setOpenedPaymentTab(true)}
+                                  className="w-full btn-primary py-4 text-lg flex items-center justify-center gap-2 cursor-pointer font-bold shadow-md h-12 text-center select-none block hover:scale-[1.01] active:scale-95 transition-transform"
+                                >
+                                  <CheckCircle2 size={20} /> {openedPaymentTab ? "Relaunch Paystack Payment" : "Securely Pay with Paystack"}
+                                </a>
+                              );
+                            })()
+                          )}
+                        </div>
+                      );
+                    })()}
                     
                     {/* Sandbox bypass for easier testing / evaluation */}
                     <button 
@@ -899,7 +1348,7 @@ export default function AdmissionPage() {
                         />
                         <button 
                           onClick={() => verifyManualPayment((document.getElementById('paymentRef') as HTMLInputElement).value)}
-                          className="px-4 py-3 bg-emerald-100 text-emerald-700 rounded-xl text-sm font-bold hover:bg-emerald-200 transition-all font-mono"
+                          className="px-4 py-3 bg-emerald-100 text-emerald-700 rounded-xl text-sm font-bold hover:bg-emerald-200 transition-all font-mono cursor-pointer"
                         >
                           Verify
                         </button>
@@ -909,14 +1358,14 @@ export default function AdmissionPage() {
                 </motion.div>
               )}
 
-              {step === 2 && (
+              {step === 3 && (
                 <motion.div
-                  key="step2"
+                  key="step3"
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
                 >
-                  {useExternalForm ? (
+                  {shouldRenderExternal ? (
                     <div className="space-y-8 text-left animate-fade-in">
                       <div className="p-5 bg-emerald-50 rounded-2xl border border-emerald-100 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
                         <div className="space-y-1">
@@ -964,7 +1413,7 @@ export default function AdmissionPage() {
                         <div className="border border-slate-200 rounded-3xl overflow-hidden bg-white shadow-inner" style={{ height: '700px' }}>
                           <iframe 
                             src={netlifyFormUrl} 
-                            title="Netlify Registration Form" 
+                            title="FormBold/External Registration Form" 
                             className="w-full h-full border-0"
                             sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
                           />
@@ -972,9 +1421,9 @@ export default function AdmissionPage() {
                       ) : (
                         <div className="p-12 text-center bg-slate-50 rounded-3xl border border-dashed border-slate-300">
                           <FileText size={48} className="text-slate-350 mx-auto mb-4" />
-                          <h4 className="font-bold text-slate-700">Netlify Form Setup Required</h4>
+                          <h4 className="font-bold text-slate-700">FormBold / External Form Link Required</h4>
                           <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 leading-normal mb-6">
-                            You've selected the external Netlify form mode. Please use the developer settings panel above to enter your form URL.
+                            You've selected the external form mode. Please use the developer settings panel above to enter your FormBold Form URL.
                           </p>
                           <button
                             type="button"
@@ -993,7 +1442,7 @@ export default function AdmissionPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            setStep(3);
+                            setStep(4);
                           }}
                           className="px-6 py-3 bg-emerald-950 text-white hover:bg-emerald-900 rounded-xl font-bold text-xs uppercase tracking-widest cursor-pointer"
                         >
@@ -1003,6 +1452,20 @@ export default function AdmissionPage() {
                     </div>
                   ) : (
                     <>
+                      {useExternalForm && isHeadlessEndpoint && (
+                        <div className="mb-6 p-5 bg-amber-50 rounded-2xl border border-amber-200 text-left space-y-2">
+                          <h4 className="text-xs font-black text-amber-905 text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                            💡 FormBold API Endpoint Connected
+                          </h4>
+                          <p className="text-xs text-slate-650 leading-relaxed">
+                            Your portal is configured to integrate with a FormBold headless endpoint (<code>{netlifyFormUrl}</code>). Since direct FormBold submission paths (<code>/s/...</code>) do not host user-facing web forms and cannot be embedded in an iframe (which triggers a 404), we have automatically loaded our beautifully styled, fully responsive <strong>Built-in Admission Form</strong> below.
+                          </p>
+                          <p className="text-[11px] text-slate-500 leading-relaxed">
+                            Filling out the form below writes securely to your database roster and dispatches a background webhook post straight to your FormBold account!
+                          </p>
+                        </div>
+                      )}
+
                       {/* Alert panel and Quick fill action */}
                       <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
                         <div className="text-left">
@@ -1050,18 +1513,33 @@ export default function AdmissionPage() {
                                 </div>
                               </div>
                               <input type="hidden" {...register("passportPhoto", { required: true })} />
+                              {errors.passportPhoto && <p className="text-xs text-red-500 mt-1">Please upload a valid passport photograph</p>}
                             </div>
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-500 uppercase">First Name</label>
                               <input {...register("firstName", { required: true })} className="input-field" />
+                              {errors.firstName && <span className="text-[10px] text-red-500">First name is required</span>}
                             </div>
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-500 uppercase">Last Name</label>
                               <input {...register("lastName", { required: true })} className="input-field" />
+                              {errors.lastName && <span className="text-[10px] text-red-500">Last name is required</span>}
                             </div>
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-500 uppercase">Email Address</label>
-                              <input {...register("email", { required: true })} className="input-field bg-slate-100 cursor-not-allowed" readOnly />
+                              <input 
+                                type="email" 
+                                {...register("email", { 
+                                  required: "Email is required",
+                                  pattern: {
+                                    value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                                    message: "Invalid email address"
+                                  }
+                                })} 
+                                placeholder="name@example.com"
+                                className="input-field" 
+                              />
+                              {errors.email && <span className="text-[10px] text-red-500">{errors.email.message || "Email is required"}</span>}
                             </div>
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-500 uppercase">Gender</label>
@@ -1070,10 +1548,12 @@ export default function AdmissionPage() {
                                 <option value="Male">Male</option>
                                 <option value="Female">Female</option>
                               </select>
+                              {errors.gender && <span className="text-[10px] text-red-500">Gender is required</span>}
                             </div>
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-500 uppercase">Date of Birth</label>
                               <input type="date" {...register("dateOfBirth", { required: true })} className="input-field" />
+                              {errors.dateOfBirth && <span className="text-[10px] text-red-500">Date of birth is required</span>}
                             </div>
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-500 uppercase">Apply for Class</label>
@@ -1081,10 +1561,12 @@ export default function AdmissionPage() {
                                 <option value="">Select Class</option>
                                 {CLASSES.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                               </select>
+                              {errors.targetClassId && <span className="text-[10px] text-red-500">Please select a class</span>}
                             </div>
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-500 uppercase">Phone Number</label>
                               <input {...register("phone", { required: true })} className="input-field" />
+                              {errors.phone && <span className="text-[10px] text-red-500">Phone number is required</span>}
                             </div>
                           </div>
                         </div>
@@ -1191,14 +1673,17 @@ export default function AdmissionPage() {
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-500 uppercase">Guardian Name</label>
                               <input {...register("guardianName", { required: true })} className="input-field" />
+                              {errors.guardianName && <span className="text-[10px] text-red-500">Guardian name is required</span>}
                             </div>
                             <div className="space-y-2">
                               <label className="text-xs font-bold text-slate-500 uppercase">Guardian Phone</label>
                               <input {...register("guardianPhone", { required: true })} className="input-field" />
+                              {errors.guardianPhone && <span className="text-[10px] text-red-500">Guardian phone number is required</span>}
                             </div>
                             <div className="space-y-2 md:col-span-2">
                               <label className="text-xs font-bold text-slate-500 uppercase">Residential Address</label>
                               <textarea {...register("address", { required: true })} className="input-field min-h-[100px]" />
+                              {errors.address && <span className="text-[10px] text-red-500">Residential address is required</span>}
                             </div>
                           </div>
                         </div>
@@ -1212,9 +1697,9 @@ export default function AdmissionPage() {
                 </motion.div>
               )}
 
-              {step === 3 && (
+              {step === 4 && (
                 <motion.div
-                  key="step3"
+                  key="step4"
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className="py-6"

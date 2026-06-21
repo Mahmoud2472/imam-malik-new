@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Book, Users, GraduationCap, ChevronRight, Plus, Trash2, Edit, Loader2, BookOpen, Wallet, Database, Sparkles, RefreshCw, ShieldAlert } from 'lucide-react';
+import { Book, Users, GraduationCap, ChevronRight, Plus, Trash2, Edit, Loader2, BookOpen, Wallet, Database, Sparkles, RefreshCw, ShieldAlert, Download } from 'lucide-react';
 import { collection, query, onSnapshot, deleteDoc, doc, getDocs, addDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { formatCurrency } from '../../lib/utils';
 import ConfigModal from './modals/ConfigModal';
+import { supabase } from '../../lib/supabase';
 
 export default function AdminConfig() {
   const [activeTab, setActiveTab] = useState<'Classes' | 'Subjects' | 'Teachers' | 'Fees' | 'System'>('Classes');
@@ -11,6 +12,7 @@ export default function AdminConfig() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [teacherSearch, setTeacherSearch] = useState('');
 
   const [purging, setPurging] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -109,10 +111,34 @@ export default function AdminConfig() {
   };
 
   useEffect(() => {
-    if (activeTab === 'Teachers' || activeTab === 'System') {
+    if (activeTab === 'System') {
        setData([]);
        setLoading(false);
        return;
+    }
+
+    if (activeTab === 'Teachers') {
+      setLoading(true);
+      const getTeachers = async () => {
+        try {
+          const { data: profs, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('role', 'teacher');
+          if (profs && !error) {
+            setData(profs);
+          } else {
+            setData([]);
+          }
+        } catch (err) {
+          console.error("Error fetching teachers:", err);
+          setData([]);
+        } finally {
+          setLoading(false);
+        }
+      };
+      getTeachers();
+      return;
     }
 
     const collectionName = activeTab.toLowerCase();
@@ -130,6 +156,32 @@ export default function AdminConfig() {
     if (window.confirm(`Are you sure you want to delete this ${activeTab.slice(0, -1)}?`)) {
       await deleteDoc(doc(db, activeTab.toLowerCase(), id));
     }
+  };
+
+  const handleExportTeachersCSV = () => {
+    const headers = ['Staff ID', 'Full Name', 'Email', 'Role'];
+    const csvRows = [
+      headers.join(','),
+      ...data.map(t => {
+        const rowData = [
+          t.teacherId || t.teacher_id || 'IMSC/STAFF/' + String(t.id || '').toUpperCase().slice(0, 4),
+          t.displayName || t.display_name || 'Unnamed Teacher',
+          t.email || '',
+          t.role || 'teacher'
+        ];
+        return rowData.map(val => `"${String(val).replace(/"/g, '""')}"`).join(',');
+      })
+    ];
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `teacher_list_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const menuItems = [
@@ -253,6 +305,65 @@ export default function AdminConfig() {
                   {seeding ? <Loader2 className="animate-spin" size={16} /> : <><RefreshCw size={14} /> Seed Default Configuration</>}
                 </button>
               </div>
+            </div>
+          </div>
+        ) : activeTab === 'Teachers' ? (
+          <div className="p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+              <input 
+                type="text"
+                placeholder="Search staff by name or email..."
+                value={teacherSearch}
+                onChange={(e) => setTeacherSearch(e.target.value)}
+                className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:border-emerald-500 outline-none w-full sm:max-w-xs shadow-sm"
+              />
+              <button
+                type="button"
+                onClick={handleExportTeachersCSV}
+                className="flex items-center gap-2 px-5 py-2.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-slate-200 rounded-xl font-bold text-xs transition-colors cursor-pointer w-full sm:w-auto justify-center shadow-sm"
+              >
+                <Download size={14} /> Export Teachers CSV
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {data
+                .filter(t => 
+                  `${t.displayName || t.display_name || ''} ${t.email || ''}`.toLowerCase().includes(teacherSearch.toLowerCase())
+                )
+                .map((teacher) => (
+                  <div key={teacher.id} className="p-6 bg-white border border-slate-100 rounded-3xl hover:border-emerald-200 hover:bg-emerald-50/10 transition-all group relative overflow-hidden flex flex-col justify-between h-48 shadow-sm">
+                    <div>
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-950 text-amber-500 font-extrabold flex items-center justify-center shadow-sm">
+                          {String(teacher.displayName || teacher.display_name || 'T')[0].toUpperCase()}
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-slate-800 text-sm">{teacher.displayName || teacher.display_name || 'Unnamed Staff'}</h4>
+                          <span className="px-2 py-0.5 bg-amber-500/10 text-amber-800 rounded text-[9px] font-black uppercase tracking-wider block w-fit mt-1">
+                            {teacher.teacherId || teacher.teacher_id || 'IMSC/STAFF/' + String(teacher.id || '').toUpperCase().slice(0, 4)}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Registered Email</p>
+                      <p className="text-xs font-medium text-slate-600 font-mono select-all truncate">{teacher.email}</p>
+                    </div>
+                    
+                    <div className="pt-3 border-t border-slate-50 flex justify-between items-center">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Active Staff Profile</span>
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm border border-emerald-100 animate-pulse" />
+                    </div>
+                  </div>
+              ))}
+              
+              {data.filter(t => 
+                `${t.displayName || t.display_name || ''} ${t.email || ''}`.toLowerCase().includes(teacherSearch.toLowerCase())
+              ).length === 0 && (
+                <div className="col-span-full py-20 text-center text-slate-400 font-medium">
+                  {data.length === 0 ? "No teacher profiles have been registered in the database." : "No staff profiles matching your search query."}
+                </div>
+              )}
             </div>
           </div>
         ) : (

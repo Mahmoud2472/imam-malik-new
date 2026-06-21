@@ -482,7 +482,7 @@ function StudentResults() {
 function StudentFees() {
   const { userData, user } = useAuth();
   const payments = [
-    { title: 'Admission Fee', amount: 1000, date: 'Mar 12, 2026', method: 'Online' },
+    { title: 'Admission & Prospectus Fee', amount: 5000, date: 'Mar 12, 2026', method: 'Online' },
     { title: '1st Term Tuition', amount: 12000, date: 'Mar 14, 2026', method: 'Bank Transfer' },
   ];
 

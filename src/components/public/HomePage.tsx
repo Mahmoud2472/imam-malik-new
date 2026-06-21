@@ -12,6 +12,7 @@ export default function HomePage() {
   const [activeSlide, setActiveSlide] = useState(0);
   const [imageMode, setImageMode] = useState<'cover' | 'contain'>('cover');
   const [isPlaying, setIsPlaying] = useState(true);
+  const [hideOverlay, setHideOverlay] = useState(false);
 
   const heroSlides = [
     "https://res.cloudinary.com/dswuqqfuk/image/upload/v1768901131/staff.jpg_bigazu.jpg",
@@ -51,7 +52,7 @@ export default function HomePage() {
               alt={`Slide ${idx + 1}`} 
               initial={{ opacity: 0, scale: imageMode === 'cover' ? 1.08 : 1.0 }}
               animate={{ 
-                opacity: activeSlide === idx ? (imageMode === 'cover' ? 0.85 : 1.0) : 0, 
+                opacity: activeSlide === idx ? (hideOverlay ? 1.0 : (imageMode === 'cover' ? 0.85 : 1.0)) : 0, 
                 scale: activeSlide === idx ? 1.0 : (imageMode === 'cover' ? 1.08 : 1.0) 
               }}
               transition={{ duration: 1.0, ease: "easeInOut" }}
@@ -61,38 +62,44 @@ export default function HomePage() {
               referrerPolicy="no-referrer"
             />
           ))}
-          {/* Subtle responsive gradients behind content to highlight text legibility with crystal clear overlay */}
-          <div className="absolute inset-0 bg-gradient-to-r from-emerald-950/95 via-emerald-950/40 to-emerald-950/10 pointer-events-none md:block hidden" />
-          <div className="absolute inset-0 bg-black/60 md:hidden pointer-events-none" />
+          {/* Subtle responsive gradients behind content to highlight text legibility with crystal clear overlay, fading dynamically */}
+          <div className={`absolute inset-0 bg-gradient-to-r from-emerald-950/95 via-emerald-950/40 to-emerald-950/10 pointer-events-none md:block hidden transition-opacity duration-500 ${hideOverlay ? 'opacity-0' : 'opacity-100'}`} />
+          <div className={`absolute inset-0 bg-black/60 md:hidden pointer-events-none transition-opacity duration-500 ${hideOverlay ? 'opacity-0' : 'opacity-100'}`} />
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 relative z-10 w-full flex flex-col justify-between h-full py-12">
+        <div className="max-w-7xl mx-auto px-4 relative z-10 w-full flex flex-col justify-between h-full py-6 md:py-12">
           <div className="flex-grow flex items-center">
             <motion.div 
               initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8 }}
-              className="max-w-2xl bg-emerald-950/70 md:bg-transparent backdrop-blur-sm md:backdrop-blur-none p-6 md:p-0 rounded-3xl border border-emerald-900/40 md:border-transparent mt-12 md:mt-0"
+              animate={{ 
+                opacity: hideOverlay ? 0 : 1, 
+                y: hideOverlay ? 20 : 0,
+                scale: hideOverlay ? 0.95 : 1
+              }}
+              transition={{ duration: 0.5, ease: "easeInOut" }}
+              className={`max-w-2xl bg-emerald-950/75 md:bg-transparent backdrop-blur-md md:backdrop-blur-none p-4 md:p-0 rounded-2xl md:rounded-none border border-emerald-800/40 md:border-transparent mt-2 md:mt-0 transition-all duration-300 ${
+                hideOverlay ? 'pointer-events-none hidden' : ''
+              }`}
             >
-              <span className="inline-block py-1.5 px-3 bg-amber-500/15 border border-amber-500/30 text-amber-500 rounded-full text-xs font-black uppercase tracking-widest mb-6">
-                Established Since 2005
+              <span className="inline-block py-1 px-2.5 bg-amber-500/15 border border-amber-500/30 text-amber-500 rounded-full text-[10px] font-black uppercase tracking-widest mb-3 md:mb-6">
+                Established Since 2016
               </span>
-              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 md:mb-6 leading-[1.1] tracking-tight">
+              <h1 className="text-xl sm:text-3xl md:text-5xl lg:text-6xl font-bold text-white mb-2 md:mb-6 leading-[1.1] tracking-tight">
                 Nurturing <span className="text-amber-500 italic">Faith</span> & <span className="text-emerald-400">Scientific</span> Excellence
               </h1>
-              <p className="text-sm md:text-base text-emerald-100/85 mb-6 md:mb-10 leading-relaxed max-w-md font-medium">
+              <p className="text-[11px] sm:text-sm md:text-base text-emerald-100/85 mb-4 md:mb-10 leading-relaxed max-w-sm md:max-w-md font-medium">
                 Providing holistic education that integrates Quranic memorization with cutting-edge academic curricula for a brighter future.
               </p>
-              <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex flex-col sm:flex-row gap-2.5">
                 <Link 
                   to="/admission"
-                  className="btn-secondary px-6 py-3 md:px-8 md:py-4 flex items-center justify-center gap-2 group shadow-xl shadow-amber-900/20 text-sm md:text-base font-bold"
+                  className="btn-secondary px-5 py-2.5 md:px-8 md:py-4 flex items-center justify-center gap-2 group shadow-xl shadow-amber-900/20 text-xs md:text-base font-bold"
                 >
-                  Enroll Your Child <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+                  Enroll Your Child <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
                 </Link>
                 <Link 
                   to="/about"
-                  className="px-6 py-3 md:px-8 md:py-4 border-2 border-white/30 text-white rounded-xl font-bold hover:bg-white/10 hover:border-white/60 transition-colors text-center text-sm md:text-base"
+                  className="px-5 py-2.5 md:px-8 md:py-4 border-2 border-white/30 text-white rounded-xl font-bold hover:bg-white/10 hover:border-white/60 transition-colors text-center text-xs md:text-base"
                 >
                   Learn More
                 </Link>
@@ -101,7 +108,15 @@ export default function HomePage() {
           </div>
 
           {/* Premium Gallery Controls / Interactive Toolbar for live adjustments */}
-          <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 bg-emerald-950/90 backdrop-blur-md px-6 py-4 rounded-2xl border border-emerald-800/60 shadow-2xl relative z-20 w-full">
+          <motion.div 
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ 
+              opacity: hideOverlay ? 0 : 1, 
+              y: hideOverlay ? 50 : 0
+            }}
+            transition={{ duration: 0.4 }}
+            className={`mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 bg-emerald-950/90 backdrop-blur-md px-6 py-4 rounded-2xl border border-emerald-800/60 shadow-2xl relative z-20 w-full ${hideOverlay ? 'pointer-events-none hidden' : ''}`}
+          >
             {/* Index Display */}
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest leading-none">Catalog ({activeSlide + 1}/{heroSlides.length})</span>
@@ -149,8 +164,8 @@ export default function HomePage() {
                 </button>
               </div>
 
-              {/* Complete Fit Toggle Button */}
-              <div className="flex items-center bg-emerald-900/45 rounded-xl px-2.5 py-1.5 border border-emerald-800/30 gap-1.5">
+              {/* Complete Fit Toggle Button with Text Visibility Toggler */}
+              <div className="flex flex-wrap items-center bg-emerald-900/45 rounded-xl px-2.5 py-1.5 border border-emerald-800/30 gap-2">
                 <span className="text-[9px] font-black uppercase text-slate-300 tracking-wider">Image View:</span>
                 <button
                   type="button"
@@ -176,9 +191,36 @@ export default function HomePage() {
                 >
                   <Maximize2 size={10} /> Complete Fit
                 </button>
+                <div className="w-px h-3.5 bg-emerald-800" />
+                <button
+                  type="button"
+                  onClick={() => setHideOverlay(!hideOverlay)}
+                  className={`px-2.5 py-1 text-[9px] font-black rounded-lg uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 ${
+                    hideOverlay 
+                      ? 'bg-amber-500 text-emerald-950 shadow-sm' 
+                      : 'text-slate-300 hover:text-white hover:bg-emerald-800/30'
+                  }`}
+                  title={hideOverlay ? "Show text descriptions" : "Hide text descriptions"}
+                >
+                  {hideOverlay ? <BookOpen size={10} /> : <Minimize2 size={10} />}
+                  {hideOverlay ? "Show Text" : "Hide Text"}
+                </button>
               </div>
             </div>
-          </div>
+          </motion.div>
+
+          {/* Minimalist Floating Overlay Action (Triggers only when info is hidden to easily bring back layout context) */}
+          {hideOverlay && (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0, scale: 0.8, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              onClick={() => setHideOverlay(false)}
+              className="absolute bottom-6 right-6 z-30 flex items-center gap-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-emerald-950 px-4 py-2.5 rounded-full font-black text-xs uppercase tracking-widest shadow-2xl transition-all cursor-pointer border border-amber-400"
+            >
+              <ImageIcon size={14} /> Show Text & Controls
+            </motion.button>
+          )}
         </div>
       </section>
 
@@ -255,7 +297,7 @@ export default function HomePage() {
           {[
             { value: '500+', label: 'Active Students' },
             { value: '45+', label: 'Expert Teachers' },
-            { value: '98%', label: 'JAMB Success Rate' },
+            { value: '98%', label: 'Science & Technical Exam Success Rate' },
             { value: '150+', label: 'Huffaz Graduated' },
           ].map((stat, idx) => (
             <div key={idx}>

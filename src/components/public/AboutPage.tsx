@@ -18,7 +18,7 @@ export default function AboutPage() {
             <span className="text-amber-600 font-bold uppercase tracking-widest text-sm mb-4 block">History</span>
             <h2 className="text-3xl font-bold text-emerald-950 mb-6">Founded with a Vision</h2>
             <p className="text-slate-600 mb-6 leading-relaxed">
-              Imam Malik Science & Tahfiz College was founded in 2005 with the goal of providing a safe environment for Muslim children to excel in both Western and Islamic education.
+              Imam Malik Science & Tahfiz College was founded in 2016 with the goal of providing a safe environment for Muslim children to excel in both Western and Islamic education.
             </p>
             <div className="space-y-4">
               {[
