@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { 
-  collection, doc, getDoc, updateDoc, query, where, getDocs, serverTimestamp 
+  collection, doc, getDoc, updateDoc, query, where, getDocs, serverTimestamp, addDoc 
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { 
@@ -250,7 +250,28 @@ export default function AdminScanner() {
         });
       }
 
-      setSuccessMsg("Application Approved & Admitted successfully!");
+      // 3. Add Dashboard Notification
+      await addDoc(collection(db, "notifications"), {
+        userId: verifiedDoc.userId || 'guest',
+        applicantEmail: verifiedDoc.email,
+        title: "Admission Status: Approved! 🎉",
+        message: `Congratulations ${verifiedDoc.firstName}! Your admission application for class ${getClassName(verifiedDoc.targetClassId)} has been approved. You can now access your full student portal and download your Admission Letter.`,
+        type: "admission_status",
+        status: "unread",
+        createdAt: new Date().toISOString()
+      });
+
+      // 4. Add Automated Email Trigger Log
+      await addDoc(collection(db, "email_logs"), {
+        userId: verifiedDoc.userId || 'guest',
+        to: verifiedDoc.email,
+        subject: "Imam Malik Science & Tahfiz College - Admission Approved! 🎉",
+        body: `Dear ${verifiedDoc.firstName} ${verifiedDoc.lastName},\n\nCongratulations!\n\nWe are extremely pleased to inform you that your application for admission to Imam Malik Science & Tahfiz College has been APPROVED for class: ${getClassName(verifiedDoc.targetClassId)}.\n\nYou have been promoted to the Student role in our system. You can now log back into the portal at https://imsc.edu/auth using your registered student credentials.\n\nBest regards,\nAdmission Office\nImam Malik Science & Tahfiz College`,
+        sentAt: new Date().toISOString(),
+        status: "delivered"
+      });
+
+      setSuccessMsg("Application Approved & Admitted successfully! System notification and simulated automated email dispatched.");
       // reload details
       await lookupRecord(verifiedDoc.id);
     } catch (err: any) {

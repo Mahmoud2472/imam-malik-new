@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, CreditCard, FileText, UserPlus, Download, AlertCircle, Loader2, ShieldCheck, LogIn, Printer } from 'lucide-react';
+import { CheckCircle2, CreditCard, FileText, UserPlus, Download, AlertCircle, Loader2, ShieldCheck, LogIn, Printer, Bell, Mail, Check, X } from 'lucide-react';
+import { db } from '../../lib/firebase';
+import { collection, query, where, onSnapshot, getDocs, updateDoc, doc, orderBy } from 'firebase/firestore';
 import { supabase } from '../../lib/supabase';
 import { jsPDF } from 'jspdf';
 import { generateId, formatDate, cn, formatCurrency } from '../../lib/utils';
@@ -61,6 +63,51 @@ export default function AdmissionPage() {
     const cached = localStorage.getItem('imsc_admission_fee_amount');
     return cached ? parseInt(cached, 10) : 1000;
   });
+
+  // Client-side automated notifications centre
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  useEffect(() => {
+    if (user?.uid) {
+      const q = query(
+        collection(db, "notifications"),
+        where("userId", "==", user.uid),
+        orderBy("createdAt", "desc")
+      );
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (err) => {
+        console.warn("Notifications subscription error, falling back to basic query:", err);
+        const qSimple = query(
+          collection(db, "notifications"),
+          where("userId", "==", user.uid)
+        );
+        getDocs(qSimple).then(snap => {
+          const fetched = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          // sort locally
+          fetched.sort((a: any, b: any) => {
+            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return timeB - timeA;
+          });
+          setNotifications(fetched);
+        }).catch(e => console.error("Could not fetch notifications fallback:", e));
+      });
+      return () => unsubscribe();
+    }
+  }, [user]);
+
+  const markNotificationsAsRead = async () => {
+    const unread = notifications.filter(n => n.status === 'unread');
+    for (const n of unread) {
+      try {
+        await updateDoc(doc(db, "notifications", n.id), { status: 'read' });
+      } catch (err) {
+        console.error("Error marking notification as read:", err);
+      }
+    }
+  };
   const [isUpdatingSettings, setIsUpdatingSettings] = useState<boolean>(false);
   
   const isHeadlessEndpoint = !!(netlifyFormUrl?.includes('/s/') || netlifyFormUrl?.includes('formbold.com/s/'));
@@ -880,12 +927,91 @@ export default function AdmissionPage() {
     <div className="bg-slate-50 min-h-screen">
       <div className="school-gradient py-20 text-white text-center relative">
         {user && (
-          <button 
-            onClick={() => supabase.auth.signOut().then(() => navigate('/'))}
-            className="absolute top-4 right-4 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors"
-          >
-            Sign Out
-          </button>
+          <div className="absolute top-4 right-4 flex items-center gap-3 z-50">
+            {/* Notification Bell Dropdown */}
+            <div className="relative">
+              <button 
+                onClick={() => {
+                  setShowNotifications(!showNotifications);
+                  if (!showNotifications) {
+                    markNotificationsAsRead();
+                  }
+                }}
+                className="relative p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all transform active:scale-95 flex items-center justify-center border border-white/10 shadow-sm"
+                title="Notifications"
+              >
+                <Bell size={18} />
+                {notifications.filter(n => n.status === 'unread').length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 rounded-full text-[10px] font-black flex items-center justify-center text-emerald-950 animate-pulse">
+                    {notifications.filter(n => n.status === 'unread').length}
+                  </span>
+                )}
+              </button>
+
+              <AnimatePresence>
+                {showNotifications && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 15, scale: 0.95 }}
+                    className="absolute right-0 mt-3 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden text-left"
+                  >
+                    <div className="p-4 bg-emerald-950 text-white flex justify-between items-center">
+                      <div>
+                        <h4 className="font-extrabold text-xs uppercase tracking-wider">Inbox Notifications</h4>
+                        <p className="text-[10px] text-emerald-300">Admission status updates & actions</p>
+                      </div>
+                      <button 
+                        onClick={() => setShowNotifications(false)}
+                        className="text-white/70 hover:text-white p-1"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                    
+                    <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                      {notifications.length > 0 ? (
+                        notifications.map((n) => (
+                          <div key={n.id} className={cn("p-4 transition-all duration-200", n.status === 'unread' ? "bg-amber-500/5 hover:bg-amber-500/10" : "hover:bg-slate-50")}>
+                            <div className="flex gap-2.5">
+                              <div className={cn("mt-0.5 p-1.5 rounded-lg shrink-0", n.title.includes('Approved') ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600")}>
+                                <Bell size={14} />
+                              </div>
+                              <div className="space-y-1 w-full">
+                                <div className="flex justify-between items-start gap-2">
+                                  <h5 className="text-xs font-bold text-slate-800 leading-tight">{n.title}</h5>
+                                  {n.status === 'unread' && (
+                                    <span className="text-[8px] bg-amber-500 text-emerald-950 font-black uppercase px-1 py-0.5 rounded flex-shrink-0">NEW</span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-500 leading-relaxed font-medium">{n.message}</p>
+                                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                                  {n.createdAt ? new Date(n.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-8 text-center text-slate-400">
+                          <Bell className="mx-auto text-slate-300 mb-2" size={24} />
+                          <p className="text-xs font-bold">No inbox notifications yet.</p>
+                          <p className="text-[10px] text-slate-400 mt-1">Status changes will alert you here.</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <button 
+              onClick={() => supabase.auth.signOut().then(() => navigate('/'))}
+              className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm transition-colors border border-white/10 font-bold"
+            >
+              Sign Out
+            </button>
+          </div>
         )}
         <h1 className="text-4xl font-bold mb-4">Admissions Portal</h1>
         <p className="text-emerald-100 max-w-xl mx-auto px-4 opacity-80">

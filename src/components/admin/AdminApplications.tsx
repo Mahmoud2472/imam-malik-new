@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { CheckCircle, XCircle, Search, Filter, Loader2, Trash2, Eye, X } from 'lucide-react';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
@@ -46,12 +46,32 @@ export default function AdminApplications() {
           await updateDoc(userRef, { 
             admissionStatus: 'approved',
             targetClass: app.targetClassId,
-            // Optionally change role to student if your system treats admitted applicants as students immediately
             role: 'student' 
           });
         }
+
+        // 3. Store Dashboard Notification for the applicant
+        await addDoc(collection(db, "notifications"), {
+          userId: app.userId || 'guest',
+          applicantEmail: app.email,
+          title: "Admission Status: Approved! 🎉",
+          message: `Congratulations ${app.firstName}! Your admission application for class ${getClassName(app.targetClassId)} has been approved. You are now promoted and can view your full student records.`,
+          type: "admission_status",
+          status: "unread",
+          createdAt: new Date().toISOString()
+        });
+
+        // 4. Store Automated Outgoing Email Trigger Log
+        await addDoc(collection(db, "email_logs"), {
+          userId: app.userId || 'guest',
+          to: app.email,
+          subject: "Imam Malik Science & Tahfiz College - Admission Approved! 🎉",
+          body: `Dear ${app.firstName} ${app.lastName},\n\nCongratulations!\n\nWe are extremely pleased to inform you that your application for admission to Imam Malik Science & Tahfiz College has been APPROVED for class: ${getClassName(app.targetClassId)}.\n\nYou have been promoted to the Student role in our system. You can now log back into the portal at https://imsc.edu/auth using your registered student credentials.\n\nBest regards,\nAdmission Office\nImam Malik Science & Tahfiz College`,
+          sentAt: new Date().toISOString(),
+          status: "delivered"
+        });
         
-        alert("Application Approved Successfully!");
+        alert("Application Approved! Realtime notification sent and automated email logged.");
       } catch (error) {
         console.error("Approval error:", error);
         alert("Failed to approve application.");
@@ -59,9 +79,46 @@ export default function AdminApplications() {
     }
   };
 
-  const rejectApp = async (id: string) => {
-    if (window.confirm("Are you sure you want to reject this application?")) {
-      await updateDoc(doc(db, "applications", id), { status: 'rejected' });
+  const rejectApp = async (app: any) => {
+    if (window.confirm(`Are you sure you want to reject ${app.firstName}'s application?`)) {
+      try {
+        await updateDoc(doc(db, "applications", app.id), { 
+          status: 'rejected' 
+        });
+
+        if (app.userId) {
+          const userRef = doc(db, "users", app.userId);
+          await updateDoc(userRef, {
+            admissionStatus: 'rejected'
+          });
+        }
+
+        // 3. Store Dashboard Notification for the applicant
+        await addDoc(collection(db, "notifications"), {
+          userId: app.userId || 'guest',
+          applicantEmail: app.email,
+          title: "Admission Status Update ⚠️",
+          message: `Hello. Your admission application to class ${getClassName(app.targetClassId)} has been rejected. Please contact the admissions office if you would like to seek more feedback.`,
+          type: "admission_status",
+          status: "unread",
+          createdAt: new Date().toISOString()
+        });
+
+        // 4. Store Automated Outgoing Email Trigger Log
+        await addDoc(collection(db, "email_logs"), {
+          userId: app.userId || 'guest',
+          to: app.email,
+          subject: "Imam Malik Science & Tahfiz College - Application Status Update",
+          body: `Dear ${app.firstName} ${app.lastName},\n\nThank you for your application to Imam Malik Science & Tahfiz College.\n\nWe regret to inform you that we are unable to offer you admission for the selected class ${getClassName(app.targetClassId)} at this time. Please log in or contact our administration for more details.\n\nBest regards,\nAdmission Board\nImam Malik Science & Tahfiz College`,
+          sentAt: new Date().toISOString(),
+          status: "delivered"
+        });
+
+        alert("Application Rejected! Notification sent and automated email logged.");
+      } catch (error) {
+        console.error("Rejection error:", error);
+        alert("Failed to reject application.");
+      }
     }
   };
 
@@ -159,7 +216,7 @@ export default function AdminApplications() {
                       )}
                       {app.status === 'pending' && (
                         <button 
-                          onClick={() => rejectApp(app.id)} 
+                          onClick={() => rejectApp(app)} 
                           title="Reject"
                           className="p-2 text-amber-600 hover:bg-amber-50 rounded-xl transition-colors"
                         >
