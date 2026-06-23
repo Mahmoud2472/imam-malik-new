@@ -10,6 +10,7 @@ import { signOut } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
 import { useAuth } from '../../lib/auth';
 import { cn } from '../../lib/utils';
+import { isSupabaseConfigured } from '../../lib/supabase';
 
 // Sub-components (to be implemented)
 import AdminOverview from './AdminOverview';
@@ -131,6 +132,13 @@ export default function AdminDashboard() {
             </h3>
           </div>
           <div className="flex items-center gap-6">
+            {/* Database Connection Badge */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-slate-50 text-[11px] font-bold">
+              <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`} />
+              <span className={isSupabaseConfigured ? 'text-slate-600' : 'text-amber-700'}>
+                {isSupabaseConfigured ? 'Supabase Live' : 'Offline Sandbox'}
+              </span>
+            </div>
             <div className="hidden md:flex flex-col items-end">
               <span className="text-xs text-slate-400 font-bold uppercase tracking-widest">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
             </div>

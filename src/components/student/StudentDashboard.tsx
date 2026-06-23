@@ -11,6 +11,7 @@ import { signOut } from 'firebase/auth';
 import { auth, db, storage } from '../../lib/firebase';
 import { useAuth } from '../../lib/auth';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import { collection, query, where, getDocs, limit, updateDoc, doc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import AdmissionLetter from '../public/AdmissionLetter';
@@ -104,7 +105,16 @@ export default function StudentDashboard() {
              <h3 className="font-bold text-slate-800">Assalamu Alaikum, {userData?.displayName?.split(' ')[0]}</h3>
           </div>
           
-          <Link to="/student/profile" className="flex items-center gap-3 group">
+          <div className="flex items-center gap-4">
+            {/* Database Connection Badge */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-slate-50 text-[11px] font-bold">
+              <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`} />
+              <span className={isSupabaseConfigured ? 'text-slate-600' : 'text-amber-700'}>
+                {isSupabaseConfigured ? 'Supabase Live' : 'Offline Sandbox'}
+              </span>
+            </div>
+            
+            <Link to="/student/profile" className="flex items-center gap-3 group">
             <div className="text-right hidden sm:block">
               <p className="text-xs font-bold text-slate-700 leading-tight group-hover:text-amber-600 transition-colors">{userData?.displayName}</p>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{userData?.role}</p>
@@ -117,7 +127,8 @@ export default function StudentDashboard() {
               )}
             </div>
           </Link>
-        </header>
+        </div>
+      </header>
 
         <div className="p-8 overflow-y-auto flex-grow">
           <Routes>
