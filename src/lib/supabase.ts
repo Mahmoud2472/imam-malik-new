@@ -8,6 +8,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.g
 const environmentHasCredentials = !!(
   supabaseUrl && 
   supabaseAnonKey && 
+  (supabaseUrl.startsWith('http://') || supabaseUrl.startsWith('https://')) &&
   supabaseUrl !== 'https://your-project.supabase.co' && 
   !supabaseUrl.includes('placeholder')
 );
@@ -170,10 +171,31 @@ const generateMockSupabaseClient = () => {
       signInWithPassword: async ({ email, password }: any) => {
         console.log('[Mock Supabase Auth] Logging in:', email);
         const profiles = getMockData('profiles');
-        const userProfile = profiles.find(p => p.email === email);
+        let userProfile = profiles.find(p => p.email === email);
         
         if (!userProfile) {
-          return { data: { user: null }, error: { message: 'Invalid credentials or user not found.' } };
+          console.log('[Mock Supabase Auth] Auto-registering user on new device:', email);
+          const mockId = 'usr-' + Math.floor(Math.random() * 1000000);
+          let role = 'applicant';
+          const emailLower = email.toLowerCase();
+          if (emailLower.includes('admin')) {
+            role = 'admin';
+          } else if (emailLower.includes('teacher')) {
+            role = 'teacher';
+          } else if (emailLower.includes('student')) {
+            role = 'student';
+          }
+
+          userProfile = {
+            id: mockId,
+            email,
+            role,
+            displayName: email.split('@')[0],
+            createdAt: new Date().toISOString()
+          };
+
+          profiles.push(userProfile);
+          saveMockData('profiles', profiles);
         }
 
         const mockUser = {
