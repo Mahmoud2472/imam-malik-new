@@ -56,7 +56,7 @@ export default function AdmissionPage() {
   const [useExternalForm, setUseExternalForm] = useState<boolean>(localStorage.getItem('imsc_use_external_form') === 'true');
   const [paystackPublicKey, setPaystackPublicKey] = useState<string>(
     localStorage.getItem('imsc_paystack_public_key') || 
-    (import.meta as any).env.VITE_PAYSTACK_PUBLIC_KEY || 
+    import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 
     'pk_live_322d4bde836a684b28f791049b8c3997742c8985'
   );
   const [admissionFeeAmount, setAdmissionFeeAmount] = useState<number>(() => {
@@ -343,7 +343,7 @@ export default function AdmissionPage() {
     setValue('email', email);
     
     // Choose the configured state key or env key or a default public test key fallback
-    const activeKey = paystackPublicKey || (import.meta as any).env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_322d4bde836a684b28f791049b8c3997742c8985';
+    const activeKey = paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_322d4bde836a684b28f791049b8c3997742c8985';
     const directLink = `https://paystack.shop/pay/mxrl-hceiv`;
 
     // Scenario A: Use Integrated Popup (Always try inline Pop.setup first if the js.paystack.co inline.js is loaded)
@@ -1365,7 +1365,7 @@ export default function AdmissionPage() {
 
                   <div className="max-w-sm mx-auto space-y-4">
                     {(() => {
-                      const activeKey = paystackPublicKey || (import.meta as any).env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_322d4bde836a684b28f791049b8c3997742c8985';
+                      const activeKey = paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_322d4bde836a684b28f791049b8c3997742c8985';
                       const hasInlineProvider = !!(window as any).PaystackPop;
                       const isDefaultKey = activeKey.includes('pk_test_d30e527d704ba348e') || activeKey === 'pk_test_YourPublicKeyHere';
                       const isAdmin = user?.email === 'maitechitservices6@gmail.com' || userData?.role === 'admin';

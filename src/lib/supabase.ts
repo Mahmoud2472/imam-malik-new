@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Read configuration from environment
-const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 // Detect if environment credentials are mechanically present
 const environmentHasCredentials = !!(
