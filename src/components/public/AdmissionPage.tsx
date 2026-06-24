@@ -1612,7 +1612,14 @@ export default function AdmissionPage() {
                         </button>
                       </div>
 
-                      <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+                      <form 
+                        name="admission-applications" 
+                        data-netlify="true" 
+                        data-netlify-honeypot="bot-field" 
+                        onSubmit={handleSubmit(onSubmit)} 
+                        className="space-y-8"
+                      >
+                        <input type="hidden" name="form-name" value="admission-applications" />
                         <div>
                           <h3 className="text-lg font-bold text-emerald-950 mb-6 flex items-center gap-2 text-left">
                             <UserPlus size={20} className="text-amber-500" /> Student Information

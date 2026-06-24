@@ -28,6 +28,34 @@ export default function LoginPage() {
   };
 
   const [isForceMock, setIsForceMock] = useState(localStorage.getItem('imsc_force_mock_supabase') === 'true');
+  const [showConfigDetails, setShowConfigDetails] = useState(false);
+  const [customUrl, setCustomUrl] = useState(localStorage.getItem('imsc_custom_supabase_url') || '');
+  const [customKey, setCustomKey] = useState(localStorage.getItem('imsc_custom_supabase_anon_key') || '');
+  const [customPaystack, setCustomPaystack] = useState(localStorage.getItem('imsc_paystack_public_key') || '');
+
+  const handleSaveCustomConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (customUrl.trim()) {
+      localStorage.setItem('imsc_custom_supabase_url', customUrl.trim());
+    } else {
+      localStorage.removeItem('imsc_custom_supabase_url');
+    }
+
+    if (customKey.trim()) {
+      localStorage.setItem('imsc_custom_supabase_anon_key', customKey.trim());
+    } else {
+      localStorage.removeItem('imsc_custom_supabase_anon_key');
+    }
+
+    if (customPaystack.trim()) {
+      localStorage.setItem('imsc_paystack_public_key', customPaystack.trim());
+    } else {
+      localStorage.removeItem('imsc_paystack_public_key');
+    }
+
+    localStorage.removeItem('imsc_force_mock_supabase');
+    window.location.reload();
+  };
 
   const toggleMockMode = () => {
     const newVal = !isForceMock;
@@ -381,21 +409,100 @@ export default function LoginPage() {
           </div>
 
           {/* Database Mode Control Banner */}
-          <div className="mb-6 p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-4">
-            <div className="flex-1">
-              <span className="block text-[9px] font-black uppercase text-slate-400 tracking-wider">Connection Mode</span>
-              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
-                <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
-                {isSupabaseConfigured ? 'Live Supabase (Production)' : 'Simulated Table Sandbox'}
-              </span>
+          <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <span className="block text-[9px] font-black uppercase text-slate-400 tracking-wider">Connection Mode</span>
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
+                  <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
+                  {isSupabaseConfigured ? 'Live Supabase (Production)' : 'Simulated Table Sandbox'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowConfigDetails(!showConfigDetails)}
+                  className="px-2 py-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-600 hover:text-emerald-900 border border-slate-200 hover:border-emerald-300 rounded-lg bg-white transition-all cursor-pointer"
+                >
+                  {showConfigDetails ? 'Hide Config' : 'Configure Custom DB'}
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleMockMode}
+                  className="px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider bg-emerald-900 border border-emerald-950 text-white hover:bg-emerald-950 rounded-lg transition-all shadow-sm cursor-pointer"
+                >
+                  {isSupabaseConfigured ? 'Use Local Mode' : 'Use Live Online'}
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={toggleMockMode}
-              className="px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider bg-emerald-900 border border-emerald-950 text-white hover:bg-emerald-950 rounded-lg transition-all shadow-sm cursor-pointer"
-            >
-              {isSupabaseConfigured ? 'Use Local Mode' : 'Use Live Online'}
-            </button>
+
+            {showConfigDetails && (
+              <motion.form 
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                onSubmit={handleSaveCustomConfig}
+                className="pt-3 border-t border-slate-200/60 space-y-3 text-left"
+              >
+                <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                  If you are deploying to a custom domain (e.g., Netlify) and your live connection is yellow/orange, enter your project credentials here to connect this browser session directly:
+                </p>
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1">Supabase Project URL</label>
+                    <input
+                      type="url"
+                      placeholder="https://your-project-id.supabase.co"
+                      value={customUrl}
+                      onChange={(e) => setCustomUrl(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500 font-mono bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1">Supabase Anon Key</label>
+                    <input
+                      type="password"
+                      placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                      value={customKey}
+                      onChange={(e) => setCustomKey(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500 font-mono bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase text-slate-400 tracking-wider mb-1">Paystack Public Key (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="pk_live_..."
+                      value={customPaystack}
+                      onChange={(e) => setCustomPaystack(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500 font-mono bg-white"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-1 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.removeItem('imsc_custom_supabase_url');
+                      localStorage.removeItem('imsc_custom_supabase_anon_key');
+                      localStorage.removeItem('imsc_paystack_public_key');
+                      setCustomUrl('');
+                      setCustomKey('');
+                      setCustomPaystack('');
+                      window.location.reload();
+                    }}
+                    className="px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-wider text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Reset to Default
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 text-[9px] font-black uppercase tracking-wider bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg transition-colors shadow-sm cursor-pointer"
+                  >
+                    Save & Connect
+                  </button>
+                </div>
+              </motion.form>
+            )}
           </div>
 
           <form onSubmit={handleAuth} className="space-y-5">

@@ -11,7 +11,8 @@
     <script type="module" src="/src/main.tsx"></script>
 
     <!-- Hidden form for Netlify Form integration -->
-    <form name="admission-applications" netlify="true" netlify-honeypot="bot-field" hidden>
+    <form name="admission-applications" data-netlify="true" netlify="true" netlify-honeypot="bot-field" hidden>
+      <input type="hidden" name="form-name" value="admission-applications" />
       <input type="text" name="firstName" />
       <input type="text" name="lastName" />
       <input type="email" name="email" />
