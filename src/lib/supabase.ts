@@ -10,9 +10,22 @@ let rawSupabaseUrl =
   '';
 
 rawSupabaseUrl = rawSupabaseUrl.trim();
-if (rawSupabaseUrl.endsWith('/')) {
+
+// Remove any trailing slashes repeatedly
+while (rawSupabaseUrl.endsWith('/')) {
   rawSupabaseUrl = rawSupabaseUrl.slice(0, -1);
 }
+
+// Remove trailing /rest/v1 if present
+if (rawSupabaseUrl.endsWith('/rest/v1')) {
+  rawSupabaseUrl = rawSupabaseUrl.slice(0, -8);
+}
+
+// Strip trailing slashes again just in case
+while (rawSupabaseUrl.endsWith('/')) {
+  rawSupabaseUrl = rawSupabaseUrl.slice(0, -1);
+}
+
 const supabaseUrl = rawSupabaseUrl;
 
 const supabaseAnonKey = (

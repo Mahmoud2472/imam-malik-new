@@ -9,6 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { jsPDF } from 'jspdf';
 import { generateId, formatDate, cn, formatCurrency } from '../../lib/utils';
 import { useAuth } from '../../lib/auth';
+import { safeStorage } from '../../lib/safeStorage';
 import AdmissionLetter from './AdmissionLetter';
 import QRCode from 'qrcode';
 
@@ -120,10 +121,18 @@ export default function AdmissionPage() {
 
   useEffect(() => {
     if (watchedFields && Object.keys(watchedFields).length > 0) {
-      if (user) {
-        localStorage.setItem(`imsc_draft_admission_${user.uid}`, JSON.stringify(watchedFields));
-      } else {
-        localStorage.setItem('imsc_draft_admission_guest', JSON.stringify(watchedFields));
+      const prunedFields = { ...watchedFields };
+      // Always exclude large passportPhoto base64 data to avoid local storage quota exceeded errors
+      delete prunedFields.passportPhoto;
+
+      try {
+        if (user) {
+          safeStorage.setItem(`imsc_draft_admission_${user.uid}`, JSON.stringify(prunedFields));
+        } else {
+          safeStorage.setItem('imsc_draft_admission_guest', JSON.stringify(prunedFields));
+        }
+      } catch (err) {
+        console.warn("Could not save auto-save draft due to storage limits:", err);
       }
     }
   }, [watchedFields, user]);
@@ -563,7 +572,7 @@ export default function AdmissionPage() {
         let offlineApp = null;
         const storageKey = user?.uid ? `imsc_submitted_app_${user.uid}` : 'imsc_submitted_app_guest';
         try {
-          const localRaw = localStorage.getItem(storageKey);
+          const localRaw = safeStorage.getItem(storageKey);
           if (localRaw) {
             offlineApp = JSON.parse(localRaw);
           }
@@ -687,8 +696,20 @@ export default function AdmissionPage() {
         status: 'pending',
         transactionId: txnId
       };
+      
       const storageKey = user?.uid ? `imsc_submitted_app_${user.uid}` : 'imsc_submitted_app_guest';
-      localStorage.setItem(storageKey, JSON.stringify(completeApp));
+      try {
+        const prunedApp = {
+          ...completeApp,
+          passportPhoto: (data.passportPhoto && data.passportPhoto.length < 5000)
+            ? data.passportPhoto
+            : 'Uploaded photo (stored in database)'
+        };
+        safeStorage.setItem(storageKey, JSON.stringify(prunedApp));
+      } catch (storageErr) {
+        console.warn("Could not save submitted application to local storage backup due to quota limits:", storageErr);
+      }
+
       setExistingApplication(completeApp);
       setApplicationId(finalDocId);
 

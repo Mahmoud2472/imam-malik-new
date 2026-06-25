@@ -37,7 +37,13 @@ export default function LoginPage() {
   const handleSaveCustomConfig = (e: React.FormEvent) => {
     e.preventDefault();
     let cleanedUrl = customUrl.trim();
-    if (cleanedUrl.endsWith('/')) {
+    while (cleanedUrl.endsWith('/')) {
+      cleanedUrl = cleanedUrl.slice(0, -1);
+    }
+    if (cleanedUrl.endsWith('/rest/v1')) {
+      cleanedUrl = cleanedUrl.slice(0, -8);
+    }
+    while (cleanedUrl.endsWith('/')) {
       cleanedUrl = cleanedUrl.slice(0, -1);
     }
     if (cleanedUrl) {
@@ -78,7 +84,13 @@ export default function LoginPage() {
     const sbKey = searchParams.get('sb_key');
     if (sbUrl && sbKey) {
       let cleanedUrl = sbUrl.trim();
-      if (cleanedUrl.endsWith('/')) {
+      while (cleanedUrl.endsWith('/')) {
+        cleanedUrl = cleanedUrl.slice(0, -1);
+      }
+      if (cleanedUrl.endsWith('/rest/v1')) {
+        cleanedUrl = cleanedUrl.slice(0, -8);
+      }
+      while (cleanedUrl.endsWith('/')) {
         cleanedUrl = cleanedUrl.slice(0, -1);
       }
       localStorage.setItem('imsc_custom_supabase_url', cleanedUrl);
