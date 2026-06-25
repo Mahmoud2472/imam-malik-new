@@ -1,13 +1,15 @@
+import { safeStorage } from './safeStorage';
+
 type Callback = (snapshot: any) => void;
 
 // Helper to interact with Mock database
 const getMockData = (table: string): any[] => {
-  const data = localStorage.getItem(`imsc_supabase_mock_${table}`);
+  const data = safeStorage.getItem(`imsc_supabase_mock_${table}`);
   return data ? JSON.parse(data) : [];
 };
 
 const saveMockData = (table: string, data: any[]) => {
-  localStorage.setItem(`imsc_supabase_mock_${table}`, JSON.stringify(data));
+  safeStorage.setItem(`imsc_supabase_mock_${table}`, JSON.stringify(data));
 };
 
 // Ensure default settings are initialized
@@ -17,8 +19,8 @@ const ensureDefaultSettings = () => {
   if (!configs.some(c => c.id === 'admission_settings')) {
     configs.push({
       id: 'admission_settings',
-      netlifyFormUrl: localStorage.getItem('imsc_netlify_form_url') || 'https://formbold.com/s/9mBJY',
-      useExternalForm: localStorage.getItem('imsc_use_external_form') === 'true',
+      netlifyFormUrl: safeStorage.getItem('imsc_netlify_form_url') || 'https://formbold.com/s/9mBJY',
+      useExternalForm: safeStorage.getItem('imsc_use_external_form') === 'true',
       updatedAt: new Date().toISOString()
     });
     saveMockData('config', configs);
@@ -45,7 +47,7 @@ export function getAuth() {
       subscribers.push(callback);
       // Retrieve active user from mock session
       const getSessionUser = () => {
-        const activeUserId = localStorage.getItem('imsc_active_user_id');
+        const activeUserId = safeStorage.getItem('imsc_active_user_id');
         if (!activeUserId) return null;
         const profiles = getMockData('profiles');
         const userProfile = profiles.find(p => p.id === activeUserId);
@@ -71,7 +73,7 @@ export function getAuth() {
 
 export function signOut() {
   console.log('[Mock Firebase Auth] Signed out');
-  localStorage.removeItem('imsc_active_user_id');
+  safeStorage.removeItem('imsc_active_user_id');
   subscribers.forEach(cb => cb(null));
   return Promise.resolve();
 }

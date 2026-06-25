@@ -1,13 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
+import { safeStorage } from './safeStorage';
 
 // Read configuration from environment OR localStorage fallbacks
-let rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('imsc_custom_supabase_url') || '';
+let rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || safeStorage.getItem('imsc_custom_supabase_url') || '';
 rawSupabaseUrl = rawSupabaseUrl.trim();
 if (rawSupabaseUrl.endsWith('/')) {
   rawSupabaseUrl = rawSupabaseUrl.slice(0, -1);
 }
 const supabaseUrl = rawSupabaseUrl;
-const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('imsc_custom_supabase_anon_key') || '').trim();
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || safeStorage.getItem('imsc_custom_supabase_anon_key') || '').trim();
 
 // Detect if environment credentials are mechanically present
 const environmentHasCredentials = !!(
@@ -19,13 +20,13 @@ const environmentHasCredentials = !!(
 );
 
 // Allow user to manually trigger or auto-fallback to simulated mock client safely
-export const isSupabaseConfigured = environmentHasCredentials && localStorage.getItem('imsc_force_mock_supabase') !== 'true';
+export const isSupabaseConfigured = environmentHasCredentials && safeStorage.getItem('imsc_force_mock_supabase') !== 'true';
 
 // --- LOCAL STORAGE DATA SEEDERS ---
 const initializeLocalStorageSchema = () => {
   // If there's an existing fees mock data, let's fix it to 1000!
   const feesKey = 'imsc_supabase_mock_fees';
-  const existingFeesStr = localStorage.getItem(feesKey);
+  const existingFeesStr = safeStorage.getItem(feesKey);
   if (existingFeesStr) {
     try {
       const existingFees = JSON.parse(existingFeesStr);
@@ -38,7 +39,7 @@ const initializeLocalStorageSchema = () => {
         return f;
       });
       if (updated || !existingFees.some((f: any) => f.id === 'fee-1')) {
-        localStorage.setItem(feesKey, JSON.stringify(mappedFees));
+        safeStorage.setItem(feesKey, JSON.stringify(mappedFees));
       }
     } catch (e) {
       // Ignore
@@ -46,12 +47,12 @@ const initializeLocalStorageSchema = () => {
   }
 
   // Force admission fee amount in localstorage to 1000
-  localStorage.setItem('imsc_admission_fee_amount', '1000');
+  safeStorage.setItem('imsc_admission_fee_amount', '1000');
 
   // If there's an old cached key, replace it with the live key
-  const cachedPaystackKey = localStorage.getItem('imsc_paystack_public_key');
+  const cachedPaystackKey = safeStorage.getItem('imsc_paystack_public_key');
   if (!cachedPaystackKey || cachedPaystackKey.includes('pk_test_d30e527d704ba348eb46cf4619d8bd075ca825db')) {
-    localStorage.setItem('imsc_paystack_public_key', 'pk_live_322d4bde836a684b28f791049b8c3997742c8985');
+    safeStorage.setItem('imsc_paystack_public_key', 'pk_live_322d4bde836a684b28f791049b8c3997742c8985');
   }
 
   const tables = [
@@ -61,8 +62,8 @@ const initializeLocalStorageSchema = () => {
   
   tables.forEach(table => {
     const key = `imsc_supabase_mock_${table}`;
-    if (!localStorage.getItem(key)) {
-      localStorage.setItem(key, JSON.stringify([]));
+    if (!safeStorage.getItem(key)) {
+      safeStorage.setItem(key, JSON.stringify([]));
     }
   });
 
@@ -70,7 +71,7 @@ const initializeLocalStorageSchema = () => {
   const profileKey = 'imsc_supabase_mock_profiles';
   let currentProfiles = [];
   try {
-    currentProfiles = JSON.parse(localStorage.getItem(profileKey) || '[]');
+    currentProfiles = JSON.parse(safeStorage.getItem(profileKey) || '[]');
   } catch (e) {
     console.warn("Corrupt profiles detected in mock storage. Resetting schema...", e);
     currentProfiles = [];
@@ -82,7 +83,7 @@ const initializeLocalStorageSchema = () => {
       { id: 'mock-teacher-id', email: 'teacher@school.com', role: 'teacher', displayName: 'Mr. Okonjo' },
       { id: 'mock-student-id', email: 'student@school.com', role: 'student', displayName: 'Abubakar Ibrahim' }
     ];
-    localStorage.setItem(profileKey, JSON.stringify(defaultProfiles));
+    safeStorage.setItem(profileKey, JSON.stringify(defaultProfiles));
   }
 };
 
@@ -92,7 +93,7 @@ if (!isSupabaseConfigured) {
 
 // Helper to interact with Mock database
 const getMockData = (table: string): any[] => {
-  const data = localStorage.getItem(`imsc_supabase_mock_${table}`);
+  const data = safeStorage.getItem(`imsc_supabase_mock_${table}`);
   if (!data) return [];
   try {
     const parsed = JSON.parse(data);
@@ -104,7 +105,7 @@ const getMockData = (table: string): any[] => {
 };
 
 const saveMockData = (table: string, data: any[]) => {
-  localStorage.setItem(`imsc_supabase_mock_${table}`, JSON.stringify(data));
+  safeStorage.setItem(`imsc_supabase_mock_${table}`, JSON.stringify(data));
 };
 
 // --- CLIENT-SIDE MOCK CLIENT GENERATOR ---
@@ -166,7 +167,7 @@ const generateMockSupabaseClient = () => {
           access_token: 'mock-token'
         };
 
-        localStorage.setItem('imsc_active_user_id', mockId);
+        safeStorage.setItem('imsc_active_user_id', mockId);
         
         // Notify subscription listeners of sign up
         setTimeout(() => triggerAuthChange('SIGNED_IN', session), 0);
@@ -214,7 +215,7 @@ const generateMockSupabaseClient = () => {
           access_token: 'mock-token'
         };
 
-        localStorage.setItem('imsc_active_user_id', userProfile.id);
+        safeStorage.setItem('imsc_active_user_id', userProfile.id);
 
         setTimeout(() => triggerAuthChange('SIGNED_IN', session), 0);
 
@@ -222,12 +223,12 @@ const generateMockSupabaseClient = () => {
       },
       signOut: async () => {
         console.log('[Mock Supabase Auth] Logged out.');
-        localStorage.removeItem('imsc_active_user_id');
+        safeStorage.removeItem('imsc_active_user_id');
         setTimeout(() => triggerAuthChange('SIGNED_OUT', null), 0);
         return { error: null };
       },
       getSession: async () => {
-        const activeUserId = localStorage.getItem('imsc_active_user_id');
+        const activeUserId = safeStorage.getItem('imsc_active_user_id');
         if (!activeUserId) return { data: { session: null }, error: null };
         const profiles = getMockData('profiles');
         const userProfile = profiles.find(p => p.id === activeUserId);
@@ -247,7 +248,7 @@ const generateMockSupabaseClient = () => {
         listeners.add(callback);
         
         // Initial trigger
-        const activeUserId = localStorage.getItem('imsc_active_user_id');
+        const activeUserId = safeStorage.getItem('imsc_active_user_id');
         if (activeUserId) {
           const profiles = getMockData('profiles');
           const userProfile = profiles.find(p => p.id === activeUserId);

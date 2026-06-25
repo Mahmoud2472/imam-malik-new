@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from './supabase';
+import { safeStorage } from './safeStorage';
 
 export interface UserRoleData {
   role: 'admin' | 'teacher' | 'student' | 'applicant';
@@ -40,7 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchProfile = async (userId: string, email: string) => {
     const cacheKey = `imsc_user_data_${userId}`;
-    const cached = localStorage.getItem(cacheKey);
+    const cached = safeStorage.getItem(cacheKey);
     if (cached) {
       try {
         setUserData(JSON.parse(cached));
@@ -70,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           targetClass: profile.targetClass || profile.target_class
         };
         setUserData(dataToSet);
-        localStorage.setItem(cacheKey, JSON.stringify(dataToSet));
+        safeStorage.setItem(cacheKey, JSON.stringify(dataToSet));
       } else {
         // Auto-provision if profile is missing in the database
         const emailLower = email.toLowerCase();
@@ -101,11 +102,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         setUserData(defaultProfile);
-        localStorage.setItem(cacheKey, JSON.stringify(defaultProfile));
+        safeStorage.setItem(cacheKey, JSON.stringify(defaultProfile));
       }
     } catch (err) {
       console.warn("Could not retrieve online profile data, falling back to cache/defaults:", err);
-      if (!localStorage.getItem(cacheKey)) {
+      if (!safeStorage.getItem(cacheKey)) {
         const emailLower = email.toLowerCase();
         let predictedRole: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
         if (emailLower.includes('admin')) {
@@ -146,12 +147,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             displayName: authUser.user_metadata?.displayName || authUser.email?.split('@')[0]
           };
           setUser(compatUser);
-          localStorage.setItem('imsc_active_user_id', authUser.id);
+          safeStorage.setItem('imsc_active_user_id', authUser.id);
           await fetchProfile(authUser.id, authUser.email || '');
         } else {
           setUser(null);
           setUserData(null);
-          localStorage.removeItem('imsc_active_user_id');
+          safeStorage.removeItem('imsc_active_user_id');
         }
       } catch (err) {
         console.warn("Supabase Auth session load failure:", err);
@@ -173,12 +174,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           displayName: authUser.user_metadata?.displayName || authUser.email?.split('@')[0]
         };
         setUser(compatUser);
-        localStorage.setItem('imsc_active_user_id', authUser.id);
+        safeStorage.setItem('imsc_active_user_id', authUser.id);
         await fetchProfile(authUser.id, authUser.email || '');
       } else {
         setUser(null);
         setUserData(null);
-        localStorage.removeItem('imsc_active_user_id');
+        safeStorage.removeItem('imsc_active_user_id');
       }
       setLoading(false);
     });
