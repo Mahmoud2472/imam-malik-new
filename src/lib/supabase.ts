@@ -1,14 +1,26 @@
 import { createClient } from '@supabase/supabase-js';
 import { safeStorage } from './safeStorage';
+import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from './supabase-defaults';
 
-// Read configuration from environment OR localStorage fallbacks
-let rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || safeStorage.getItem('imsc_custom_supabase_url') || '';
+// Read configuration from environment OR code-level defaults OR localStorage fallbacks
+let rawSupabaseUrl = 
+  import.meta.env.VITE_SUPABASE_URL || 
+  DEFAULT_SUPABASE_URL || 
+  safeStorage.getItem('imsc_custom_supabase_url') || 
+  '';
+
 rawSupabaseUrl = rawSupabaseUrl.trim();
 if (rawSupabaseUrl.endsWith('/')) {
   rawSupabaseUrl = rawSupabaseUrl.slice(0, -1);
 }
 const supabaseUrl = rawSupabaseUrl;
-const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || safeStorage.getItem('imsc_custom_supabase_anon_key') || '').trim();
+
+const supabaseAnonKey = (
+  import.meta.env.VITE_SUPABASE_ANON_KEY || 
+  DEFAULT_SUPABASE_ANON_KEY || 
+  safeStorage.getItem('imsc_custom_supabase_anon_key') || 
+  ''
+).trim();
 
 // Detect if environment credentials are mechanically present
 const environmentHasCredentials = !!(
