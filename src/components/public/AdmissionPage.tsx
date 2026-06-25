@@ -51,9 +51,9 @@ export default function AdmissionPage() {
   const [copiedCallbackUrl, setCopiedCallbackUrl] = useState(false);
   const [showPrintSlip, setShowPrintSlip] = useState(false);
   
-  // Custom FormBold/External Settings
-  const [netlifyFormUrl, setNetlifyFormUrl] = useState<string>(localStorage.getItem('imsc_netlify_form_url') || 'https://formbold.com/s/9mBJY');
-  const [useExternalForm, setUseExternalForm] = useState<boolean>(localStorage.getItem('imsc_use_external_form') === 'true');
+  // Custom Netlify Settings
+  const [netlifyFormUrl, setNetlifyFormUrl] = useState<string>(localStorage.getItem('imsc_netlify_form_url') || '/');
+  const [useExternalForm, setUseExternalForm] = useState<boolean>(false);
   const [paystackPublicKey, setPaystackPublicKey] = useState<string>(
     localStorage.getItem('imsc_paystack_public_key') || 
     import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 
@@ -468,7 +468,7 @@ export default function AdmissionPage() {
 
         if (config) {
           if (config.netlifyFormUrl) setNetlifyFormUrl(config.netlifyFormUrl);
-          if (config.useExternalForm !== undefined) setUseExternalForm(config.useExternalForm);
+          setUseExternalForm(false); // Force false to use built-in form
           if (config.paystackPublicKey) {
             setPaystackPublicKey(config.paystackPublicKey);
             localStorage.setItem('imsc_paystack_public_key', config.paystackPublicKey);
@@ -481,8 +481,7 @@ export default function AdmissionPage() {
         } else {
           const localUrl = localStorage.getItem('imsc_netlify_form_url');
           if (localUrl) setNetlifyFormUrl(localUrl);
-          const localUseExt = localStorage.getItem('imsc_use_external_form') === 'true';
-          setUseExternalForm(localUseExt);
+          setUseExternalForm(false); // Force false to use built-in form
           const localKey = localStorage.getItem('imsc_paystack_public_key');
           if (localKey) setPaystackPublicKey(localKey);
           const localAmount = localStorage.getItem('imsc_admission_fee_amount');
@@ -496,8 +495,7 @@ export default function AdmissionPage() {
         console.warn("Error fetching netlify settings:", e);
         const localUrl = localStorage.getItem('imsc_netlify_form_url');
         if (localUrl) setNetlifyFormUrl(localUrl);
-        const localUseExt = localStorage.getItem('imsc_use_external_form') === 'true';
-        setUseExternalForm(localUseExt);
+        setUseExternalForm(false); // Force false to use built-in form
         const localKey = localStorage.getItem('imsc_paystack_public_key');
         if (localKey) setPaystackPublicKey(localKey);
         const localAmount = localStorage.getItem('imsc_admission_fee_amount');
@@ -746,12 +744,8 @@ export default function AdmissionPage() {
         console.warn("Netlify background form post warning:", err);
       });
 
-      // 3.5 Programmatically trigger form mapping and submit to FormBold url (e.g. 9mBJY)
-      try {
-        await triggerFormBoldSubmission(data, txnId);
-      } catch (fbErr) {
-        console.warn("FormBold submit inside onSubmit failed", fbErr);
-      }
+      // 3.5 Dispatched successfully to Netlify Forms Database! Skip external FormBold endpoint.
+      console.log("Admission form saved to Netlify Forms database and online database.");
 
       // 4. Move straight to Step 4 (instant response!)
       setStep(4);
@@ -776,14 +770,14 @@ export default function AdmissionPage() {
       await supabase.from('config').upsert({
         id: 'admission_settings',
         netlifyFormUrl: netlifyFormUrl.trim(),
-        useExternalForm: useExternalForm,
+        useExternalForm: false, // Force false online
         paystackPublicKey: paystackPublicKey.trim(),
         admissionFeeAmount: parseInt(String(admissionFeeAmount), 10),
         updatedAt: new Date().toISOString(),
         updatedBy: user?.email
       });
       localStorage.setItem('imsc_netlify_form_url', netlifyFormUrl.trim());
-      localStorage.setItem('imsc_use_external_form', useExternalForm ? 'true' : 'false');
+      localStorage.setItem('imsc_use_external_form', 'false'); // Force false locally
       localStorage.setItem('imsc_paystack_public_key', paystackPublicKey.trim());
       localStorage.setItem('imsc_admission_fee_amount', String(admissionFeeAmount));
       setAdmissionFee(prev => ({ ...prev, amount: parseInt(String(admissionFeeAmount), 10) }));
@@ -791,7 +785,7 @@ export default function AdmissionPage() {
     } catch (err: any) {
       console.error("Error saving settings:", err);
       localStorage.setItem('imsc_netlify_form_url', netlifyFormUrl.trim());
-      localStorage.setItem('imsc_use_external_form', useExternalForm ? 'true' : 'false');
+      localStorage.setItem('imsc_use_external_form', 'false'); // Force false locally
       localStorage.setItem('imsc_paystack_public_key', paystackPublicKey.trim());
       localStorage.setItem('imsc_admission_fee_amount', String(admissionFeeAmount));
       setAdmissionFee(prev => ({ ...prev, amount: parseInt(String(admissionFeeAmount), 10) }));
@@ -1039,50 +1033,13 @@ export default function AdmissionPage() {
 
             <form onSubmit={handleSaveSettings} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-300">
-                    Admission Form Presentation Mode
-                  </span>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setUseExternalForm(false)}
-                      className={cn(
-                        "py-2.5 px-3 rounded-xl border text-[11px] font-extrabold uppercase tracking-wide transition-all cursor-pointer text-center",
-                        !useExternalForm 
-                          ? "bg-emerald-900 border-emerald-500 text-white shadow-md"
-                          : "bg-slate-800/50 border-slate-700 text-slate-350 hover:bg-slate-800"
-                      )}
-                    >
-                      🌟 Built-in Native Form
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setUseExternalForm(true)}
-                      className={cn(
-                        "py-2.5 px-3 rounded-xl border text-[11px] font-extrabold uppercase tracking-wide transition-all cursor-pointer text-center",
-                        useExternalForm 
-                          ? "bg-emerald-900 border-emerald-500 text-white shadow-md"
-                          : "bg-slate-800/50 border-slate-700 text-slate-350 hover:bg-slate-800"
-                      )}
-                    >
-                      📭 External FormBold
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="netlifyFormUrlInput" className="block text-[10px] font-bold uppercase tracking-wider text-slate-300">
-                    FormBold / External Form Embed Link
-                  </label>
-                  <input
-                    id="netlifyFormUrlInput"
-                    type="url"
-                    placeholder="e.g. https://formbold.com/s/oJnX1 (Paste your FormBold s/ link here)"
-                    value={netlifyFormUrl}
-                    onChange={(e) => setNetlifyFormUrl(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 text-xs rounded-xl focus:outline-none focus:border-amber-500 text-white"
-                  />
+                <div className="md:col-span-2 bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2 text-left">
+                  <h4 className="text-xs font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                    🌟 Active Form Engine: Built-in Native Form (saves to Netlify)
+                  </h4>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    FormBold is permanently deactivated to prevent mobile device login blocks and hCaptcha verification popups. The portal now runs purely on the beautifully custom-styled <strong>Built-in Native Form</strong> which instantly syncs to your central database roster and dispatches submissions directly to your <strong>Netlify Forms Database</strong> (POSTing securely to <code>/</code>).
+                  </p>
                 </div>
 
                 <div className="space-y-2">
