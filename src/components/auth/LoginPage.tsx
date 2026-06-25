@@ -32,6 +32,7 @@ export default function LoginPage() {
   const [customUrl, setCustomUrl] = useState(localStorage.getItem('imsc_custom_supabase_url') || '');
   const [customKey, setCustomKey] = useState(localStorage.getItem('imsc_custom_supabase_anon_key') || '');
   const [customPaystack, setCustomPaystack] = useState(localStorage.getItem('imsc_paystack_public_key') || '');
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const handleSaveCustomConfig = (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,7 +73,26 @@ export default function LoginPage() {
     const qMode = searchParams.get('mode');
     if (qMode === 'register') setMode('register');
     else if (qMode === 'login') setMode('login');
-  }, [searchParams]);
+
+    const sbUrl = searchParams.get('sb_url');
+    const sbKey = searchParams.get('sb_key');
+    if (sbUrl && sbKey) {
+      let cleanedUrl = sbUrl.trim();
+      if (cleanedUrl.endsWith('/')) {
+        cleanedUrl = cleanedUrl.slice(0, -1);
+      }
+      localStorage.setItem('imsc_custom_supabase_url', cleanedUrl);
+      localStorage.setItem('imsc_custom_supabase_anon_key', sbKey.trim());
+      localStorage.removeItem('imsc_force_mock_supabase');
+      
+      const newParams = new URLSearchParams(window.location.search);
+      newParams.delete('sb_url');
+      newParams.delete('sb_key');
+      const newSearch = newParams.toString();
+      navigate(window.location.pathname + (newSearch ? '?' + newSearch : ''), { replace: true });
+      window.location.reload();
+    }
+  }, [searchParams, navigate]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -439,6 +459,38 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
+
+            {!isSupabaseConfigured && (
+              <div className="text-[11px] bg-amber-50 text-amber-900 p-3 rounded-lg border border-amber-250 leading-relaxed font-sans mt-2 space-y-1.5 text-left">
+                <p className="font-bold flex items-center gap-1 text-[11.5px] text-amber-950">⚠️ Multi-Device Setup Note</p>
+                <p>
+                  Since you are on a new device, your custom Supabase database URL is not set in this browser's local storage memory.
+                </p>
+                <p className="text-[10px] text-amber-800 font-medium">
+                  To connect your account, click <strong>"Configure Custom DB"</strong> to paste your URL & Anon Key, or use a shareable configuration setup link from your other device to connect instantly!
+                </p>
+              </div>
+            )}
+
+            {customUrl && customKey && (
+              <div className="pt-3 border-t border-slate-200/50 flex justify-between items-center flex-wrap gap-2">
+                <span className="text-[10px] text-slate-500 font-medium">Sync with other devices:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const origin = window.location.origin + window.location.pathname;
+                    const shareUrl = `${origin}?sb_url=${encodeURIComponent(customUrl)}&sb_key=${encodeURIComponent(customKey)}`;
+                    navigator.clipboard.writeText(shareUrl).then(() => {
+                      setCopiedLink(true);
+                      setTimeout(() => setCopiedLink(false), 3000);
+                    });
+                  }}
+                  className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-all cursor-pointer"
+                >
+                  {copiedLink ? '✅ Link Copied!' : '🔗 Copy Setup Link for Mobile/Other Devices'}
+                </button>
+              </div>
+            )}
 
             {showConfigDetails && (
               <motion.form 
