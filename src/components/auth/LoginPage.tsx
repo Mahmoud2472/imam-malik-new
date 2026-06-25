@@ -35,8 +35,12 @@ export default function LoginPage() {
 
   const handleSaveCustomConfig = (e: React.FormEvent) => {
     e.preventDefault();
-    if (customUrl.trim()) {
-      localStorage.setItem('imsc_custom_supabase_url', customUrl.trim());
+    let cleanedUrl = customUrl.trim();
+    if (cleanedUrl.endsWith('/')) {
+      cleanedUrl = cleanedUrl.slice(0, -1);
+    }
+    if (cleanedUrl) {
+      localStorage.setItem('imsc_custom_supabase_url', cleanedUrl);
     } else {
       localStorage.removeItem('imsc_custom_supabase_url');
     }
