@@ -310,7 +310,7 @@ const generateMockSupabaseClient = () => {
           let rows = getMockData(table);
           if (table === 'fees' && rows.length === 0) {
             rows = [
-              { id: 'fee-1', name: 'Admission & Prospectus Fee', amount: 5000, description: 'Mandatory registration fee for new applicants' }
+              { id: 'fee-1', name: 'Admission & Prospectus Fee', amount: 1000, description: 'Mandatory registration fee for new applicants' }
             ];
             saveMockData('fees', rows);
           }

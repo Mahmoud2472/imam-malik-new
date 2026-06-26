@@ -443,29 +443,41 @@ export default function AdmissionPage() {
           .select('*')
           .limit(20);
         
-        let targetAmount = admissionFeeAmount;
-        let feeName = 'Admission Application Fee';
+        let targetAmount = 1000;
+        let feeName = 'Admission & Prospectus Fee';
 
         if (fees && fees.length > 0) {
           const admFee = fees.find((f: any) => f.name && f.name.toLowerCase().includes('admission'));
           if (admFee) {
             feeName = admFee.name;
-            const cachedAmount = localStorage.getItem('imsc_admission_fee_amount');
-            targetAmount = cachedAmount ? parseInt(cachedAmount, 10) : admFee.amount;
+            if (admFee.amount !== 1000) {
+              // Automatically correct in the database so that it's permanently 1000
+              supabase.from('fees').update({ amount: 1000 }).eq('id', admFee.id).then(() => {
+                console.log("Automatically corrected admission fee in database to 1000");
+              });
+              admFee.amount = 1000;
+            }
+          } else {
+            // Seed it if missing
+            supabase.from('fees').insert({ name: 'Admission & Prospectus Fee', amount: 1000, description: 'Mandatory registration fee for new applicants' }).then(() => {
+              console.log("Seeded admission fee to database");
+            });
           }
         } else {
-          const cachedAmount = localStorage.getItem('imsc_admission_fee_amount');
-          if (cachedAmount) targetAmount = parseInt(cachedAmount, 10);
+          // Seed the database
+          supabase.from('fees').insert({ name: 'Admission & Prospectus Fee', amount: 1000, description: 'Mandatory registration fee for new applicants' }).then(() => {
+            console.log("Seeded admission fee to database");
+          });
         }
 
-        setAdmissionFee({ amount: targetAmount, name: feeName });
-        setAdmissionFeeAmount(targetAmount);
+        localStorage.setItem('imsc_admission_fee_amount', '1000');
+        setAdmissionFee({ amount: 1000, name: feeName });
+        setAdmissionFeeAmount(1000);
       } catch (e) {
         console.error("Error fetching fee:", e);
-        const cachedAmount = localStorage.getItem('imsc_admission_fee_amount');
-        const targetAmount = cachedAmount ? parseInt(cachedAmount, 10) : 1000;
-        setAdmissionFee({ amount: targetAmount, name: 'Admission Application Fee' });
-        setAdmissionFeeAmount(targetAmount);
+        localStorage.setItem('imsc_admission_fee_amount', '1000');
+        setAdmissionFee({ amount: 1000, name: 'Admission & Prospectus Fee' });
+        setAdmissionFeeAmount(1000);
       }
     };
     fetchFee();
@@ -486,45 +498,60 @@ export default function AdmissionPage() {
             setPaystackPublicKey(config.paystackPublicKey);
             localStorage.setItem('imsc_paystack_public_key', config.paystackPublicKey);
           }
-          if (config.admissionFeeAmount !== undefined) {
-            setAdmissionFeeAmount(config.admissionFeeAmount);
-            localStorage.setItem('imsc_admission_fee_amount', String(config.admissionFeeAmount));
-            setAdmissionFee(prev => ({ ...prev, amount: config.admissionFeeAmount }));
+          if (config.admissionFeeAmount !== 1000) {
+            // Automatically correct config database to 1000
+            supabase.from('config').upsert({
+              ...config,
+              id: 'admission_settings',
+              admissionFeeAmount: 1000,
+              updatedAt: new Date().toISOString()
+            }).then(() => {
+              console.log("Automatically corrected config fee in database to 1000");
+            });
           }
+          setAdmissionFeeAmount(1000);
+          localStorage.setItem('imsc_admission_fee_amount', '1000');
+          setAdmissionFee(prev => ({ ...prev, amount: 1000 }));
+          
           if (config.admissionFormEnabled !== undefined) {
             setAdmissionFormEnabled(config.admissionFormEnabled);
             localStorage.setItem('imsc_admission_form_enabled', String(config.admissionFormEnabled));
           }
         } else {
+          // If config not found, let's upsert it to default
+          supabase.from('config').insert({
+            id: 'admission_settings',
+            netlifyFormUrl: 'https://formbold.com/s/9mBJY',
+            useExternalForm: false,
+            paystackPublicKey: 'pk_live_322d4bde836a684b28f791049b8c3997742c8985',
+            admissionFeeAmount: 1000,
+            admissionFormEnabled: true,
+            updatedAt: new Date().toISOString()
+          }).then(() => {
+            console.log("Seeded config to database");
+          });
+          
           const localUrl = localStorage.getItem('imsc_netlify_form_url');
           if (localUrl) setNetlifyFormUrl(localUrl);
-          setUseExternalForm(false); // Force false to use built-in form
+          setUseExternalForm(false);
           const localKey = localStorage.getItem('imsc_paystack_public_key');
           if (localKey) setPaystackPublicKey(localKey);
-          const localAmount = localStorage.getItem('imsc_admission_fee_amount');
-          if (localAmount) {
-            const amountVal = parseInt(localAmount, 10);
-            setAdmissionFeeAmount(amountVal);
-            setAdmissionFee(prev => ({ ...prev, amount: amountVal }));
-          }
-          const localEnabled = localStorage.getItem('imsc_admission_form_enabled');
-          if (localEnabled !== null) {
-            setAdmissionFormEnabled(localEnabled === 'true');
-          }
+          setAdmissionFeeAmount(1000);
+          localStorage.setItem('imsc_admission_fee_amount', '1000');
+          setAdmissionFee(prev => ({ ...prev, amount: 1000 }));
+          setAdmissionFormEnabled(true);
+          localStorage.setItem('imsc_admission_form_enabled', 'true');
         }
       } catch (e) {
         console.warn("Error fetching netlify settings:", e);
         const localUrl = localStorage.getItem('imsc_netlify_form_url');
         if (localUrl) setNetlifyFormUrl(localUrl);
-        setUseExternalForm(false); // Force false to use built-in form
+        setUseExternalForm(false);
         const localKey = localStorage.getItem('imsc_paystack_public_key');
         if (localKey) setPaystackPublicKey(localKey);
-        const localAmount = localStorage.getItem('imsc_admission_fee_amount');
-        if (localAmount) {
-          const amountVal = parseInt(localAmount, 10);
-          setAdmissionFeeAmount(amountVal);
-          setAdmissionFee(prev => ({ ...prev, amount: amountVal }));
-        }
+        setAdmissionFeeAmount(1000);
+        localStorage.setItem('imsc_admission_fee_amount', '1000');
+        setAdmissionFee(prev => ({ ...prev, amount: 1000 }));
         const localEnabled = localStorage.getItem('imsc_admission_form_enabled');
         if (localEnabled !== null) {
           setAdmissionFormEnabled(localEnabled === 'true');

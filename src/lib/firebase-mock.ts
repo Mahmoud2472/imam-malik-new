@@ -145,7 +145,7 @@ const evaluateQuery = (q: any) => {
   // Apply configs or defaults if empty
   if (table === 'fees' && data.length === 0) {
     data = [
-      { id: 'fee-1', name: 'Admission Application Fee', amount: 5000 }
+      { id: 'fee-1', name: 'Admission Application Fee', amount: 1000 }
     ];
     saveMockData('fees', data);
   }
