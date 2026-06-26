@@ -82,7 +82,7 @@ export default function AdminConfig() {
 
       // 3. Seed Fees
       const feesData = [
-        { name: 'Admission & Prospectus Fee', amount: 15000, description: 'Mandatory registration fee for new applicants' },
+        { name: 'Admission & Prospectus Fee', amount: 1000, description: 'Mandatory registration fee for new applicants' },
         { name: '1st Term School Fees', amount: 35000, description: 'Tuition and learning materials' },
         { name: 'School Uniform Pack', amount: 10000, description: 'Custom college uniform and sportswear' }
       ];

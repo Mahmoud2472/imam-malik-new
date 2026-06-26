@@ -53,6 +53,10 @@ export default function AdmissionPage() {
   const [showPrintSlip, setShowPrintSlip] = useState(false);
   
   // Custom Netlify Settings
+  const [admissionFormEnabled, setAdmissionFormEnabled] = useState<boolean>(() => {
+    const cached = localStorage.getItem('imsc_admission_form_enabled');
+    return cached !== 'false';
+  });
   const [netlifyFormUrl, setNetlifyFormUrl] = useState<string>(localStorage.getItem('imsc_netlify_form_url') || '/');
   const [useExternalForm, setUseExternalForm] = useState<boolean>(false);
   const [paystackPublicKey, setPaystackPublicKey] = useState<string>(
@@ -487,6 +491,10 @@ export default function AdmissionPage() {
             localStorage.setItem('imsc_admission_fee_amount', String(config.admissionFeeAmount));
             setAdmissionFee(prev => ({ ...prev, amount: config.admissionFeeAmount }));
           }
+          if (config.admissionFormEnabled !== undefined) {
+            setAdmissionFormEnabled(config.admissionFormEnabled);
+            localStorage.setItem('imsc_admission_form_enabled', String(config.admissionFormEnabled));
+          }
         } else {
           const localUrl = localStorage.getItem('imsc_netlify_form_url');
           if (localUrl) setNetlifyFormUrl(localUrl);
@@ -498,6 +506,10 @@ export default function AdmissionPage() {
             const amountVal = parseInt(localAmount, 10);
             setAdmissionFeeAmount(amountVal);
             setAdmissionFee(prev => ({ ...prev, amount: amountVal }));
+          }
+          const localEnabled = localStorage.getItem('imsc_admission_form_enabled');
+          if (localEnabled !== null) {
+            setAdmissionFormEnabled(localEnabled === 'true');
           }
         }
       } catch (e) {
@@ -512,6 +524,10 @@ export default function AdmissionPage() {
           const amountVal = parseInt(localAmount, 10);
           setAdmissionFeeAmount(amountVal);
           setAdmissionFee(prev => ({ ...prev, amount: amountVal }));
+        }
+        const localEnabled = localStorage.getItem('imsc_admission_form_enabled');
+        if (localEnabled !== null) {
+          setAdmissionFormEnabled(localEnabled === 'true');
         }
       }
     };
@@ -806,6 +822,7 @@ export default function AdmissionPage() {
         useExternalForm: false, // Force false online
         paystackPublicKey: paystackPublicKey.trim(),
         admissionFeeAmount: parseInt(String(admissionFeeAmount), 10),
+        admissionFormEnabled: admissionFormEnabled,
         updatedAt: new Date().toISOString(),
         updatedBy: user?.email
       });
@@ -813,6 +830,7 @@ export default function AdmissionPage() {
       localStorage.setItem('imsc_use_external_form', 'false'); // Force false locally
       localStorage.setItem('imsc_paystack_public_key', paystackPublicKey.trim());
       localStorage.setItem('imsc_admission_fee_amount', String(admissionFeeAmount));
+      localStorage.setItem('imsc_admission_form_enabled', String(admissionFormEnabled));
       setAdmissionFee(prev => ({ ...prev, amount: parseInt(String(admissionFeeAmount), 10) }));
       alert("Admission settings saved successfully!");
     } catch (err: any) {
@@ -821,6 +839,7 @@ export default function AdmissionPage() {
       localStorage.setItem('imsc_use_external_form', 'false'); // Force false locally
       localStorage.setItem('imsc_paystack_public_key', paystackPublicKey.trim());
       localStorage.setItem('imsc_admission_fee_amount', String(admissionFeeAmount));
+      localStorage.setItem('imsc_admission_form_enabled', String(admissionFormEnabled));
       setAdmissionFee(prev => ({ ...prev, amount: parseInt(String(admissionFeeAmount), 10) }));
       alert("Settings updated locally!");
     } finally {
@@ -946,12 +965,15 @@ export default function AdmissionPage() {
     doc.setFont("helvetica", "normal");
     doc.text("Secretary, Governing Board", 20, nextY + 45);
 
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(100, 100, 100);
-    doc.text("Note: Please keep this slip safe. Admission details will be sent to your email. The entrance examination date will be communicated.", 105, nextY + 54, { align: 'center' });
+    doc.text("Important Note: Please keep this slip safe and bring it along with you to the entrance examination. The date will be communicated.", 105, nextY + 54, { align: 'center' });
     
     doc.save(`IMSC_Application_${id}.pdf`);
   };
+
+  const isUserAdmin = user?.email === 'maitechitservices6@gmail.com' || userData?.role === 'admin';
+  const showClosedState = !admissionFormEnabled && !isUserAdmin && !existingApplication;
 
   if (authLoading || (user && (checkingPayment || isLoadingStatus))) {
     return (
@@ -1118,6 +1140,29 @@ export default function AdmissionPage() {
                     className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 text-xs rounded-xl focus:outline-none focus:border-amber-500 text-white font-mono"
                   />
                 </div>
+
+                <div className="md:col-span-2 p-4 bg-slate-950 border border-slate-800 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-left">
+                  <div className="space-y-0.5">
+                    <h5 className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                      🚧 Application Form Availability Status
+                    </h5>
+                    <p className="text-[10px] text-slate-400 leading-relaxed max-w-md">
+                      Instantly toggle the registration portal's availability. When disabled, prospective students are barred from submitting new registrations and see a polite closure banner instead.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAdmissionFormEnabled(!admissionFormEnabled)}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm border",
+                      admissionFormEnabled 
+                        ? "bg-emerald-950/40 text-emerald-400 border-emerald-800 hover:bg-emerald-900/30" 
+                        : "bg-red-950/40 text-red-400 border-red-900 hover:bg-red-900/30"
+                    )}
+                  >
+                    ● {admissionFormEnabled ? "Portal Active (Open)" : "Portal Suspended (Closed)"}
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
@@ -1193,8 +1238,54 @@ export default function AdmissionPage() {
             )}
           </AnimatePresence>
 
-          {/* Progress Bar */}
-          <div className="bg-slate-50 px-8 py-6 grid grid-cols-4 gap-2 border-b border-slate-100">
+          {showClosedState ? (
+            <div className="p-8 md:p-16 text-center max-w-2xl mx-auto space-y-8 my-4 animate-fade-in">
+              <div className="w-16 h-16 bg-amber-50 text-amber-700 rounded-3xl flex items-center justify-center mx-auto border border-amber-100 shadow-sm animate-pulse">
+                <AlertCircle size={32} />
+              </div>
+              
+              <div className="space-y-3">
+                <h3 className="text-2xl font-extrabold text-slate-800">Admissions Portal Closed</h3>
+                <p className="text-xs text-slate-500 leading-relaxed max-w-md mx-auto">
+                  Thank you for your interest in Imam Malik Science & Tahfiz College. Online admission applications for the current intake are currently <strong>closed or suspended</strong>.
+                </p>
+              </div>
+
+              {!user ? (
+                <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                  <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                    If you have an existing application or have already paid the application fee, please sign in to your account to view your admission letter, print your screening slip, or track your profile status.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                    <button
+                      onClick={() => navigate('/auth?mode=login&return-to=admission')}
+                      className="btn-primary py-3 px-6 flex items-center justify-center gap-2 cursor-pointer font-bold text-xs uppercase tracking-wider shadow-sm"
+                    >
+                      <LogIn size={14} /> Sign In to Your Account
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                  <p className="text-xs text-slate-600 font-medium">
+                    You are signed in as <strong className="text-slate-800 font-bold">{user.email}</strong>, but we could not find any submitted registrations associated with this profile.
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    If you believe this is an error or need further assistance, please contact the college registry desk.
+                  </p>
+                  <button
+                    onClick={() => supabase.auth.signOut()}
+                    className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-bold transition-all shadow-sm"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Progress Bar */}
+              <div className="bg-slate-50 px-8 py-6 grid grid-cols-4 gap-2 border-b border-slate-100">
             {[1, 2, 3, 4].map(i => (
               <div key={i} className="flex flex-col gap-2">
                 <div className={cn(
@@ -1874,6 +1965,8 @@ export default function AdmissionPage() {
               )}
             </AnimatePresence>
           </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -2092,7 +2185,7 @@ export default function AdmissionPage() {
                 {/* Rewritten Note Block at the bottom of the HTML preview */}
                 <div className="mt-8 pt-6 border-t border-slate-100 text-center">
                   <p className="text-[11px] font-medium text-slate-500 leading-relaxed max-w-2xl mx-auto bg-slate-50 border border-slate-100 p-3 rounded-2xl">
-                    <strong className="text-emerald-950">Important Note:</strong> Please keep this slip safe. Admission details will be sent to your email. The entrance examination date will be communicated.
+                    <strong className="text-emerald-950">Important Note:</strong> Please keep this slip safe and bring it along with you to the entrance examination. The date will be communicated.
                   </p>
                 </div>
               </div>
