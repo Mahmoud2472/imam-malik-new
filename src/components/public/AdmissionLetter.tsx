@@ -1,7 +1,7 @@
 import React from 'react';
 import { Landmark, Download, Printer } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import { formatDate } from '../../lib/utils';
+import { formatDate, MAHMOUD_ADAMU_SIGNATURE } from '../../lib/utils';
 import QRCode from 'qrcode';
 
 interface AdmissionLetterProps {
@@ -58,10 +58,18 @@ export default function AdmissionLetter({ application }: AdmissionLetterProps) {
     
     doc.text('Congratulations once again.', 20, 210);
     
-    doc.text('Yours faithfully,', 20, 230);
+    doc.text('Yours faithfully,', 20, 225);
+    try {
+      doc.addImage(MAHMOUD_ADAMU_SIGNATURE, 'PNG', 20, 228, 35, 15);
+    } catch (e) {
+      console.warn("Signature addition failed in PDF:", e);
+    }
     doc.setFont('helvetica', 'bold');
-    doc.text('Registrar', 20, 250);
-    doc.text('Imam Malik Science & Tahfiz College', 20, 258);
+    doc.text('Mahmoud Adamu', 20, 250);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text('Secretary, Governing Board', 20, 255);
+    doc.text('Imam Malik Science & Tahfiz College', 20, 260);
     
     // Embedded Verification QR Code
     try {
@@ -138,11 +146,12 @@ export default function AdmissionLetter({ application }: AdmissionLetterProps) {
 
           <div className="pt-12 border-t border-slate-100">
             <p className="font-medium text-slate-500 mb-1">Yours faithfully,</p>
-            <div className="h-16 flex items-end">
-              <div className="border-b-2 border-slate-900 w-32 mb-2 italic font-serif text-slate-400">Signature</div>
+            <div className="h-20 flex items-center mb-2">
+              <img src={MAHMOUD_ADAMU_SIGNATURE} alt="Mahmoud Adamu Signature" className="h-16 object-contain" />
             </div>
-            <p className="font-bold text-slate-800">Registrar</p>
-            <p className="text-xs text-slate-400 font-bold uppercase">Imam Malik Science & Tahfiz College</p>
+            <p className="font-bold text-slate-800">Mahmoud Adamu</p>
+            <p className="text-xs text-slate-500 font-bold uppercase">Secretary, Governing Board</p>
+            <p className="text-[10px] text-slate-400 font-medium uppercase">Imam Malik Science & Tahfiz College</p>
           </div>
         </div>
       </div>

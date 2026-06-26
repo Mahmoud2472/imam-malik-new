@@ -6,6 +6,7 @@ import { TrendingUp, Users, DollarSign, UserCheck, AlertCircle } from 'lucide-re
 import { collection, query, getDocs, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { formatCurrency, cn } from '../../lib/utils';
+import AdminStatusDashboard from './AdminStatusDashboard';
 
 const data = [
   { name: 'Jan', revenue: 4000, students: 240 },
@@ -78,6 +79,8 @@ export default function AdminOverview() {
           </motion.div>
         ))}
       </div>
+
+      <AdminStatusDashboard />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Revenue Chart */}

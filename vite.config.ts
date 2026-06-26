@@ -7,7 +7,7 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   
   // 1. Detect Supabase URL
-  let supabaseUrl = env.VITE_SUPABASE_URL || env.SUPABASE_URL || '';
+  let supabaseUrl = env.VITE_SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL || env.SUPABASE_URL || '';
   if (!supabaseUrl) {
     const urlKey = Object.keys(env).find(k => {
       const val = env[k] || '';
@@ -19,7 +19,7 @@ export default defineConfig(({mode}) => {
   }
 
   // 2. Detect Supabase Anon/Publishable Key
-  let supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || '';
+  let supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY || env.VITE_SUPABASE_PUBLISHABLE_KEY || env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || env.NEXT_PUBLIC_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || '';
   if (!supabaseAnonKey) {
     const keyKey = Object.keys(env).find(k => {
       const val = env[k] || '';

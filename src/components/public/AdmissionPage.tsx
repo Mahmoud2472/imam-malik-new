@@ -7,7 +7,7 @@ import { db } from '../../lib/firebase';
 import { collection, query, where, onSnapshot, getDocs, updateDoc, doc, orderBy } from 'firebase/firestore';
 import { supabase } from '../../lib/supabase';
 import { jsPDF } from 'jspdf';
-import { generateId, formatDate, cn, formatCurrency } from '../../lib/utils';
+import { generateId, formatDate, cn, formatCurrency, MAHMOUD_ADAMU_SIGNATURE } from '../../lib/utils';
 import { useAuth } from '../../lib/auth';
 import { safeStorage } from '../../lib/safeStorage';
 import AdmissionLetter from './AdmissionLetter';
@@ -681,6 +681,15 @@ export default function AdmissionPage() {
   };
 
   const onSubmit = async (data: FormData) => {
+    const paidReference = localStorage.getItem(`imsc_payment_ref_${user?.uid || 'anon'}`);
+    if (!paidReference) {
+      alert("No verified payment reference found. Please complete the application fee payment first.");
+      setHasPaid(false);
+      setStep(2);
+      setIsSubmitting(false);
+      return;
+    }
+
     setIsSubmitting(true);
     const txnId = `TXN-${generateId().toUpperCase().slice(0, 8)}`;
     const finalDocId = txnId;
@@ -692,6 +701,7 @@ export default function AdmissionPage() {
         ...data,
         userId: user?.uid || 'guest-or-anon',
         paymentStatus: 'verified',
+        paystackReference: paidReference,
         appliedDate: new Date().toISOString(),
         status: 'pending',
         transactionId: txnId
@@ -720,6 +730,7 @@ export default function AdmissionPage() {
             ...data,
             userId: user?.uid,
             paymentStatus: 'verified',
+            paystackReference: paidReference,
             appliedDate: new Date().toISOString(),
             status: 'pending',
             transactionId: txnId
@@ -753,6 +764,7 @@ export default function AdmissionPage() {
       formDataObj.set('islamiyyaSchoolStart', data.islamiyyaSchoolStart || '');
       formDataObj.set('islamiyyaSchoolEnd', data.islamiyyaSchoolEnd || '');
       formDataObj.set('paymentStatus', 'verified');
+      formDataObj.set('paystackReference', paidReference || '');
       formDataObj.set('transactionId', txnId);
 
       fetch('/', {
@@ -922,9 +934,21 @@ export default function AdmissionPage() {
     }
 
     doc.line(20, nextY + 25, 190, nextY + 25);
-    doc.setFontSize(10);
+    try {
+      doc.addImage(MAHMOUD_ADAMU_SIGNATURE, 'PNG', 20, nextY + 27, 30, 12);
+    } catch (e) {
+      console.warn("Signature addition failed:", e);
+    }
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0, 0, 0);
+    doc.text("Mahmoud Adamu", 20, nextY + 41);
+    doc.setFont("helvetica", "normal");
+    doc.text("Secretary, Governing Board", 20, nextY + 45);
+
+    doc.setFontSize(9);
     doc.setTextColor(100, 100, 100);
-    doc.text("Note: Please keep this slip safe. Admission details will be sent to your email.", 105, nextY + 35, { align: 'center' });
+    doc.text("Note: Please keep this slip safe. Admission details will be sent to your email. The entrance examination date will be communicated.", 105, nextY + 54, { align: 'center' });
     
     doc.save(`IMSC_Application_${id}.pdf`);
   };
@@ -1424,39 +1448,14 @@ export default function AdmissionPage() {
                       );
                     })()}
                     
-                    {/* Sandbox bypass for easier testing / evaluation */}
-                    <button 
-                      type="button"
-                      onClick={() => verifyManualPayment("DEMO-" + Math.floor(Math.random() * 1000000) + "-PAID", false)}
-                      disabled={isSubmitting}
-                      className="w-full py-3 bg-amber-500/10 text-amber-800 border-2 border-dashed border-amber-300 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-amber-500/20 active:scale-95 transition-all text-center flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      ⚡ Bypass Payment Step (Simulate Success)
-                    </button>
-
-                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                      Immediate access to the draft form after successful verification or testing bypass.
-                    </p>
-
-                    <div className="pt-8 mt-8 border-t border-slate-100 flex flex-col gap-4">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest text-left">Already Paid or Have Reference?</p>
-                      <p className="text-slate-500 text-xs text-left leading-relaxed">
-                        If Paystack didn't redirect you automatically, enter your <strong>Paystack Transaction Reference</strong> (from the receipt/email starting with e.g. T...) below to instantly unlock the application:
+                    {/* Secure Status Note */}
+                    <div className="mt-6 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-left">
+                      <p className="text-xs text-emerald-950 leading-relaxed font-semibold">
+                        🛡️ Secure Verification Network:
                       </p>
-                      <div className="flex gap-2">
-                        <input 
-                          type="text" 
-                          id="paymentRef"
-                          placeholder="Enter Transaction Reference" 
-                          className="flex-grow px-4 py-3 bg-slate-100 rounded-xl text-sm font-medium border border-transparent focus:bg-white focus:border-emerald-500 outline-none transition-all"
-                        />
-                        <button 
-                          onClick={() => verifyManualPayment((document.getElementById('paymentRef') as HTMLInputElement).value)}
-                          className="px-4 py-3 bg-emerald-100 text-emerald-700 rounded-xl text-sm font-bold hover:bg-emerald-200 transition-all font-mono cursor-pointer"
-                        >
-                          Verify
-                        </button>
-                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed mt-1">
+                        All payments are validated in real-time. Once your payment succeeds, the system instantly logs your official transaction reference and unlocks the registration forms. Unverified submissions or bypass attempts will be automatically flagged and blacklisted.
+                      </p>
                     </div>
                   </div>
                 </motion.div>
@@ -2072,18 +2071,29 @@ export default function AdmissionPage() {
                     <div className="pt-8 border-b border-dashed border-slate-300 w-48 text-left font-semibold text-slate-400">Applicant/Sponsor Sign & Date</div>
                   </div>
                   <div className="space-y-4">
-                    <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block mb-4">Official Seal / Verification Bureau Only</span>
+                    <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest block mb-4">Official Seal & Signatures</span>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <div className="h-12 border-b border-slate-300"></div>
                         <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mt-1">First Scrutineer</span>
                       </div>
-                      <div>
-                        <div className="h-12 border-b border-slate-300"></div>
-                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mt-1">Registrar Seal</span>
+                      <div className="flex flex-col items-center">
+                        <div className="h-12 flex items-center justify-center">
+                          <img src={MAHMOUD_ADAMU_SIGNATURE} alt="Mahmoud Adamu Signature" className="h-10 object-contain" />
+                        </div>
+                        <div className="border-b border-slate-300 w-full"></div>
+                        <span className="text-[9px] text-slate-900 font-bold uppercase block mt-1 text-center">Mahmoud Adamu</span>
+                        <span className="text-[8px] text-slate-400 font-bold uppercase block text-center">Secretary, Governing Board</span>
                       </div>
                     </div>
                   </div>
+                </div>
+
+                {/* Rewritten Note Block at the bottom of the HTML preview */}
+                <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+                  <p className="text-[11px] font-medium text-slate-500 leading-relaxed max-w-2xl mx-auto bg-slate-50 border border-slate-100 p-3 rounded-2xl">
+                    <strong className="text-emerald-950">Important Note:</strong> Please keep this slip safe. Admission details will be sent to your email. The entrance examination date will be communicated.
+                  </p>
                 </div>
               </div>
             </motion.div>

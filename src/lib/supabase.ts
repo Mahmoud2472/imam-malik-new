@@ -2,11 +2,11 @@ import { createClient } from '@supabase/supabase-js';
 import { safeStorage } from './safeStorage';
 import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from './supabase-defaults';
 
-// Read configuration from environment OR code-level defaults OR localStorage fallbacks
+// Read configuration from browser local storage OR environment OR code-level defaults
 let rawSupabaseUrl = 
+  safeStorage.getItem('imsc_custom_supabase_url') || 
   import.meta.env.VITE_SUPABASE_URL || 
   DEFAULT_SUPABASE_URL || 
-  safeStorage.getItem('imsc_custom_supabase_url') || 
   '';
 
 rawSupabaseUrl = rawSupabaseUrl.trim();
@@ -29,9 +29,9 @@ while (rawSupabaseUrl.endsWith('/')) {
 const supabaseUrl = rawSupabaseUrl;
 
 const supabaseAnonKey = (
+  safeStorage.getItem('imsc_custom_supabase_anon_key') || 
   import.meta.env.VITE_SUPABASE_ANON_KEY || 
   DEFAULT_SUPABASE_ANON_KEY || 
-  safeStorage.getItem('imsc_custom_supabase_anon_key') || 
   ''
 ).trim();
 
