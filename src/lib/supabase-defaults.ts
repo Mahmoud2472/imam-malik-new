@@ -9,6 +9,16 @@
  * 2. Or fallback to local browser-specific configuration (which is only visible to the admin who set it up).
  */
 
-export const DEFAULT_SUPABASE_URL = "https://xpnngyuconhejwdhjsfx.supabase.co";
-export const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_Zxp9083ujT7W-6Gg_ZdDgw_K86mN_Sh";
-export const DEFAULT_PAYSTACK_PUBLIC_KEY = "pk_live_322d4bde836a684b28f791049b8c3997742c8985";
+export const DEFAULT_SUPABASE_URL = 
+  (import.meta.env?.VITE_SUPABASE_URL as string) || 
+  (import.meta.env?.NEXT_PUBLIC_SUPABASE_URL as string) || 
+  "";
+
+export const DEFAULT_SUPABASE_ANON_KEY = 
+  (import.meta.env?.VITE_SUPABASE_ANON_KEY as string) || 
+  (import.meta.env?.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY as string) || 
+  "";
+
+export const DEFAULT_PAYSTACK_PUBLIC_KEY = 
+  (import.meta.env?.VITE_PAYSTACK_PUBLIC_KEY as string) || 
+  "pk_live_322d4bde836a684b28f791049b8c3997742c8985";

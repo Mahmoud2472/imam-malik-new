@@ -81,9 +81,14 @@ export default function HomePage() {
                 hideOverlay ? 'pointer-events-none hidden' : ''
               }`}
             >
-              <span className="inline-block py-1 px-2.5 bg-amber-500/15 border border-amber-500/30 text-amber-500 rounded-full text-[10px] font-black uppercase tracking-widest mb-3 md:mb-6">
-                Established Since 2016
-              </span>
+              <div className="flex flex-wrap gap-2.5 mb-3 md:mb-6">
+                <span className="inline-block py-1 px-2.5 bg-amber-500/15 border border-amber-500/30 text-amber-500 rounded-full text-[10px] font-black uppercase tracking-widest">
+                  Established Since 2016
+                </span>
+                <Link to="/flyer" className="inline-flex items-center gap-1.5 py-1 px-2.5 bg-emerald-500/25 border border-emerald-400/40 text-emerald-300 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/40 hover:scale-105 active:scale-95 transition-all">
+                  🔥 Admission Open 2026/2027 • View Flyer
+                </Link>
+              </div>
               <h1 className="text-xl sm:text-3xl md:text-5xl lg:text-6xl font-bold text-white mb-2 md:mb-6 leading-[1.1] tracking-tight">
                 Nurturing <span className="text-amber-500 italic">Faith</span> & <span className="text-emerald-400">Scientific</span> Excellence
               </h1>

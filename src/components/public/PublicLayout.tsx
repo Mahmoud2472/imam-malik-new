@@ -25,6 +25,7 @@ export default function PublicLayout() {
     { name: 'Home', href: '/' },
     { name: 'About', href: '/about' },
     { name: 'Admission', href: '/admission' },
+    { name: 'Campaign Flyer', href: '/flyer' },
     { name: 'Gallery', href: '/gallery' },
     { name: 'Contact', href: '/contact' },
   ];

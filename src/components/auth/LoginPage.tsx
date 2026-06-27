@@ -603,7 +603,7 @@ export default function LoginPage() {
                     </div>
                   ) : (
                     mode === 'login' && (
-                      <p className="text-[10px] text-red-600 mt-1">If you don't have a personal account, use the <strong className="uppercase">Sandbox Demo Portals</strong> below to sign in instantly.</p>
+                      <p className="text-[10px] text-red-600 mt-1">If you are the admin/owner, use the <strong className="uppercase">Admin Sandbox Portal</strong> below to sign in instantly.</p>
                     )
                   )}
                 </div>
@@ -701,52 +701,22 @@ export default function LoginPage() {
           {mode === 'login' && (
             <div className="mt-8 pt-6 border-t border-slate-100">
               <div className="flex justify-between items-center mb-2.5">
-                <h4 className="text-[10px] font-black text-emerald-950 uppercase tracking-widest">Sandbox Demo Access Portals</h4>
+                <h4 className="text-[10px] font-black text-emerald-950 uppercase tracking-widest">Admin Sandbox Portal</h4>
                 <span className="text-[9px] text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full font-serif font-extrabold uppercase border border-amber-200/50">Auto-Provisioning</span>
               </div>
               <p className="text-[11px] text-slate-400 mb-4 leading-relaxed font-medium">
-                Click any role portal button to sign in. If the account does not exist inside your Firebase setup, the app will instantly register and seed the profile documents dynamically.
+                Click the button below to sign in as the administrator. If the account does not exist inside your Firebase setup, the app will instantly register and seed the profile documents dynamically.
               </p>
               
-              <div className="grid grid-cols-2 gap-2.5">
+              <div>
                 <button
                   type="button"
                   onClick={() => triggerDemoAccess('admin')}
                   disabled={loading}
-                  className="p-3 bg-emerald-950/5 hover:bg-emerald-950/10 text-emerald-950 rounded-xl hover:border-emerald-300 transition-all text-left border border-emerald-950/5 group relative cursor-pointer"
+                  className="w-full p-3.5 bg-emerald-950/5 hover:bg-emerald-950/10 text-emerald-950 rounded-xl hover:border-emerald-300 transition-all text-left border border-emerald-950/5 group relative cursor-pointer"
                 >
-                  <p className="text-[10px] sm:text-xs font-black uppercase tracking-tight leading-none text-emerald-950 mb-0.5">Admin Portal</p>
-                  <p className="text-[9px] text-slate-500 font-medium font-mono leading-none">admin@imsc.edu</p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => triggerDemoAccess('teacher')}
-                  disabled={loading}
-                  className="p-3 bg-emerald-950/5 hover:bg-emerald-950/10 text-emerald-950 rounded-xl hover:border-emerald-300 transition-all text-left border border-emerald-950/5 group relative cursor-pointer"
-                >
-                  <p className="text-[10px] sm:text-xs font-black uppercase tracking-tight leading-none text-emerald-950 mb-0.5">Teacher Portal</p>
-                  <p className="text-[9px] text-slate-500 font-medium font-mono leading-none">teacher@imsc.edu</p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => triggerDemoAccess('student')}
-                  disabled={loading}
-                  className="p-3 bg-emerald-950/5 hover:bg-emerald-950/10 text-emerald-950 rounded-xl hover:border-emerald-300 transition-all text-left border border-emerald-950/5 group relative cursor-pointer"
-                >
-                  <p className="text-[10px] sm:text-xs font-black uppercase tracking-tight leading-none text-emerald-950 mb-0.5">Student Portal</p>
-                  <p className="text-[9px] text-slate-500 font-medium font-mono leading-none">student@imsc.edu</p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => triggerDemoAccess('applicant')}
-                  disabled={loading}
-                  className="p-3 bg-emerald-950/5 hover:bg-emerald-950/10 text-emerald-950 rounded-xl hover:border-emerald-300 transition-all text-left border border-emerald-950/5 group relative cursor-pointer"
-                >
-                  <p className="text-[10px] sm:text-xs font-black uppercase tracking-tight leading-none text-emerald-950 mb-0.5">Applicant Portal</p>
-                  <p className="text-[9px] text-slate-500 font-medium font-mono leading-none">applicant@imsc.edu</p>
+                  <p className="text-[11px] sm:text-xs font-black uppercase tracking-tight leading-none text-emerald-950 mb-1.5">Admin & Owner Portal</p>
+                  <p className="text-[10px] text-slate-500 font-medium font-mono leading-none">admin@imsc.edu</p>
                 </button>
               </div>
             </div>

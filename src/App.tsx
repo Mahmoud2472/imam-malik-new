@@ -7,6 +7,7 @@ import AboutPage from './components/public/AboutPage';
 import AdmissionPage from './components/public/AdmissionPage';
 import GalleryPage from './components/public/GalleryPage';
 import ContactPage from './components/public/ContactPage';
+import FlyerPage from './components/public/FlyerPage';
 import LoginPage from './components/auth/LoginPage';
 import AdminDashboard from './components/admin/AdminDashboard';
 import StudentDashboard from './components/student/StudentDashboard';
@@ -104,6 +105,7 @@ export default function App() {
             <Route path="admission" element={<AdmissionPage />} />
             <Route path="gallery" element={<GalleryPage />} />
             <Route path="contact" element={<ContactPage />} />
+            <Route path="flyer" element={<FlyerPage />} />
           </Route>
 
           {/* Auth */}
