@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, CreditCard, FileText, UserPlus, Download, AlertCircle, Loader2, ShieldCheck, LogIn, Printer, Bell, Mail, Check, X } from 'lucide-react';
 import { db } from '../../lib/firebase';
-import { collection, query, where, onSnapshot, getDocs, updateDoc, doc, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs, updateDoc, doc, orderBy, addDoc } from 'firebase/firestore';
 import { supabase } from '../../lib/supabase';
 import { jsPDF } from 'jspdf';
 import { generateId, formatDate, cn, formatCurrency, MAHMOUD_ADAMU_SIGNATURE } from '../../lib/utils';
@@ -293,16 +293,34 @@ export default function AdmissionPage() {
           .limit(1);
         
         if (!qCheck || qCheck.length === 0) {
+          const receiptNo = `ADM-${generateId().toUpperCase().slice(0, 6)}`;
           // Record the new payment reference
           await supabase.from('payments').insert({
             studentId: user?.uid || "guest-or-anon",
             amount: admissionFee.amount,
             type: "Admission Fee",
-            receiptNumber: `ADM-${generateId().toUpperCase().slice(0, 6)}`,
+            receiptNumber: receiptNo,
             status: 'verified', // We trust the Paystack redirect link for this setup
             paystackReference: reference,
             verificationMethod: silent ? 'url_redirect' : 'manual_entry'
           });
+
+          // Also record in Firebase/Firestore for unified admin dashboard metrics
+          try {
+            await addDoc(collection(db, "payments"), {
+              studentId: user?.uid || "guest-or-anon",
+              amount: admissionFee.amount,
+              type: "Admission Fee",
+              receiptNumber: receiptNo,
+              status: 'verified',
+              paymentDate: new Date().toISOString(),
+              paystackReference: reference,
+              verificationMethod: silent ? 'url_redirect' : 'manual_entry'
+            });
+            console.log("Firebase payment save completed successfully!");
+          } catch (firePayErr) {
+            console.warn("Firebase payment save skipped or failed:", firePayErr);
+          }
         }
       } catch (dbErr) {
         console.warn("Supabase save of payment reference skipped or failed. This is normal in sandbox/local run. Defaulting to local memory fallback mode:", dbErr);
@@ -767,21 +785,32 @@ export default function AdmissionPage() {
       setExistingApplication(completeApp);
       setApplicationId(finalDocId);
 
-      // 2. Dispatch Supabase insert in background/asynchronously to render instantly without network lags
+      // 2. Dispatch Supabase and Firebase insert in background/asynchronously to render instantly without network lags
       (async () => {
+        const payload = {
+          ...data,
+          userId: user?.uid || 'guest-or-anon',
+          paymentStatus: 'verified',
+          paystackReference: paidReference,
+          appliedDate: new Date().toISOString(),
+          status: 'pending',
+          transactionId: txnId
+        };
+
+        // Try Supabase
         try {
-          await supabase.from('applications').insert({
-            ...data,
-            userId: user?.uid,
-            paymentStatus: 'verified',
-            paystackReference: paidReference,
-            appliedDate: new Date().toISOString(),
-            status: 'pending',
-            transactionId: txnId
-          });
+          await supabase.from('applications').insert(payload);
           console.log("Supabase background save complete!");
         } catch (err) {
           console.warn("Supabase background write skipped/failed:", err);
+        }
+
+        // Try Firebase/Firestore
+        try {
+          await addDoc(collection(db, "applications"), payload);
+          console.log("Firebase background save complete!");
+        } catch (err) {
+          console.warn("Firebase background write skipped/failed:", err);
         }
       })();
 

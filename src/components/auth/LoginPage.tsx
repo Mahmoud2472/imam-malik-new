@@ -295,115 +295,6 @@ export default function LoginPage() {
     }
   };
 
-  const triggerDemoAccess = async (role: 'admin' | 'teacher' | 'student' | 'applicant') => {
-    setLoading(true);
-    setError(null);
-
-    const demoCreds = {
-      admin: { email: 'admin@imsc.edu', password: 'admin123', displayName: 'Admin Registrar' },
-      teacher: { email: 'teacher@imsc.edu', password: 'teacher123', displayName: 'Mallam Ibrahim', teacherId: 'TCH922' },
-      student: { email: 'student@imsc.edu', password: 'student123', displayName: 'Balarabe Musa', studentId: 'STU405', admissionStatus: 'approved', targetClass: 'SS 2' },
-      applicant: { email: 'applicant@imsc.edu', password: 'applicant123', displayName: 'Zainab Umar' }
-    };
-
-    const target = demoCreds[role];
-
-    try {
-      // 1. Try to sign in
-      const { data, error: signInErr } = await supabase.auth.signInWithPassword({
-        email: target.email,
-        password: target.password
-      });
-
-      if (signInErr) {
-        // If not found in mock/real, register it
-        const { data: regData, error: regErr } = await supabase.auth.signUp({
-          email: target.email,
-          password: target.password,
-          options: {
-            data: {
-              displayName: target.displayName,
-              role
-            }
-          }
-        });
-
-        if (regErr) throw regErr;
-        
-        const user = regData.user;
-        if (user) {
-          const payload: any = {
-            id: user.id,
-            email: target.email,
-            role,
-            displayName: target.displayName,
-            admission_status: (target as any).admissionStatus || 'pending'
-          };
-          if (role === 'teacher') payload.teacher_id = (target as any).teacherId;
-          if (role === 'student') {
-            payload.student_id = (target as any).studentId;
-            payload.target_class = (target as any).targetClass;
-          }
-
-          await supabase.from('profiles').insert(payload);
-          localStorage.setItem(`imsc_user_data_${user.id}`, JSON.stringify({
-            role,
-            displayName: target.displayName,
-            email: target.email,
-            studentId: (target as any).studentId,
-            teacherId: (target as any).teacherId,
-            admissionStatus: (target as any).admissionStatus,
-            targetClass: (target as any).targetClass
-          }));
-        }
-      } else if (data.user) {
-        const user = data.user;
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-        
-        let targetProfile = profile;
-        if (!profile) {
-          const payload: any = {
-            id: user.id,
-            email: target.email,
-            role,
-            displayName: target.displayName,
-            admission_status: (target as any).admissionStatus || 'pending'
-          };
-          if (role === 'teacher') payload.teacher_id = (target as any).teacherId;
-          if (role === 'student') {
-            payload.student_id = (target as any).studentId;
-            payload.target_class = (target as any).targetClass;
-          }
-          await supabase.from('profiles').insert(payload);
-          targetProfile = payload;
-        }
-
-        localStorage.setItem(`imsc_user_data_${user.id}`, JSON.stringify({
-          role,
-          displayName: targetProfile.displayName || targetProfile.display_name || target.displayName,
-          email: target.email,
-          studentId: targetProfile.studentId || targetProfile.student_id || (target as any).studentId,
-          teacherId: targetProfile.teacherId || targetProfile.teacher_id || (target as any).teacherId,
-          admissionStatus: targetProfile.admissionStatus || targetProfile.admission_status || (target as any).admissionStatus,
-          targetClass: targetProfile.targetClass || targetProfile.target_class || (target as any).targetClass
-        }));
-      }
-
-      // Re-route based on role
-      if (role === 'admin') navigate(getRedirectUrl('/admin'));
-      else if (role === 'teacher') navigate(getRedirectUrl('/teacher'));
-      else if (role === 'student') navigate(getRedirectUrl('/student'));
-      else if (role === 'applicant') navigate(getRedirectUrl('/admission'));
-      else navigate(getRedirectUrl('/'));
-
-    } catch (err: any) {
-      console.error("Demo login error:", err);
-      setError(err?.message || "Demo login activation failed. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2">
       {/* Left Pane - Branding */}
@@ -597,15 +488,11 @@ export default function LoginPage() {
                           onClick={toggleMockMode}
                           className="w-full bg-emerald-900 border border-emerald-950 text-white rounded-lg px-3 py-2 font-bold uppercase tracking-wider text-[10px] hover:bg-emerald-950 transition-colors shadow-sm cursor-pointer"
                         >
-                          ⚡ Switch to Local Sandbox & Continue Testing
+                          ⚡ Switch to Local Database & Continue Testing
                         </button>
                       </div>
                     </div>
-                  ) : (
-                    mode === 'login' && (
-                      <p className="text-[10px] text-red-600 mt-1">If you are the admin/owner, use the <strong className="uppercase">Admin Sandbox Portal</strong> below to sign in instantly.</p>
-                    )
-                  )}
+                  ) : null}
                 </div>
               </div>
             )}
@@ -696,31 +583,6 @@ export default function LoginPage() {
               {mode === 'login' ? 'Apply for Admission' : 'Sign In instead'}
             </button>
           </div>
-
-          {/* Sandbox Demo Access Portals Row */}
-          {mode === 'login' && (
-            <div className="mt-8 pt-6 border-t border-slate-100">
-              <div className="flex justify-between items-center mb-2.5">
-                <h4 className="text-[10px] font-black text-emerald-950 uppercase tracking-widest">Admin Sandbox Portal</h4>
-                <span className="text-[9px] text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full font-serif font-extrabold uppercase border border-amber-200/50">Auto-Provisioning</span>
-              </div>
-              <p className="text-[11px] text-slate-400 mb-4 leading-relaxed font-medium">
-                Click the button below to sign in as the administrator. If the account does not exist inside your Firebase setup, the app will instantly register and seed the profile documents dynamically.
-              </p>
-              
-              <div>
-                <button
-                  type="button"
-                  onClick={() => triggerDemoAccess('admin')}
-                  disabled={loading}
-                  className="w-full p-3.5 bg-emerald-950/5 hover:bg-emerald-950/10 text-emerald-950 rounded-xl hover:border-emerald-300 transition-all text-left border border-emerald-950/5 group relative cursor-pointer"
-                >
-                  <p className="text-[11px] sm:text-xs font-black uppercase tracking-tight leading-none text-emerald-950 mb-1.5">Admin & Owner Portal</p>
-                  <p className="text-[10px] text-slate-500 font-medium font-mono leading-none">admin@imsc.edu</p>
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
