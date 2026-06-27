@@ -24,7 +24,7 @@ const checks = [
     keys: ['VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL'],
     required: true,
     description: 'Used to connect to your Supabase backend instance.',
-    validate: (val) => val && val.startsWith('https://') && val.includes('.supabase.co')
+    validate: (val) => val && (val.startsWith('https://') || val.startsWith('http://'))
   },
   {
     name: 'Supabase Anon Key',
@@ -53,9 +53,16 @@ for (const check of checks) {
   
   for (const key of check.keys) {
     if (process.env[key]) {
-      foundKey = key;
-      value = process.env[key];
-      break;
+      let rawVal = process.env[key].trim();
+      // Strip wrapping quotes if any
+      if ((rawVal.startsWith('"') && rawVal.endsWith('"')) || (rawVal.startsWith("'") && rawVal.endsWith("'"))) {
+        rawVal = rawVal.slice(1, -1).trim();
+      }
+      if (rawVal) {
+        foundKey = key;
+        value = rawVal;
+        break;
+      }
     }
   }
 

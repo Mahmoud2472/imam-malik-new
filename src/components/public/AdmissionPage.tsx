@@ -39,6 +39,7 @@ export default function AdmissionPage() {
   const { user, userData, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const paymentRef = searchParams.get('reference') || searchParams.get('trxref') || '';
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [applicationId, setApplicationId] = useState<string | null>(null);
@@ -565,7 +566,7 @@ export default function AdmissionPage() {
       setIsLoadingStatus(true);
       try {
         // 1. First, handle returning from Paystack redirect
-        const ref = searchParams.get('reference') || searchParams.get('trxref');
+        const ref = paymentRef;
         let verifiedJustNow = false;
         if (ref && !hasPaid) {
           verifiedJustNow = await verifyManualPayment(ref, true);
@@ -677,7 +678,7 @@ export default function AdmissionPage() {
     }
     // We remove hasPaid from dependencies to prevent unintended loops, 
     // unless searchParams changes which indicates a return from payment
-  }, [user, authLoading, navigate, setValue, searchParams, userData?.role, userData?.admissionStatus]);
+  }, [user, authLoading, navigate, setValue, paymentRef, userData?.role, userData?.admissionStatus]);
 
   const watchSpecialNeeds = watch("hasSpecialNeeds");
   const [passportPreview, setPassportPreview] = useState<string | null>(null);
