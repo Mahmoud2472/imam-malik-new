@@ -64,7 +64,7 @@ export default function StudentDashboard() {
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="h-full flex flex-col p-6">
-          <div className="flex items-center gap-3 mb-10 px-2">
+          <Link to="/" className="flex items-center gap-3 mb-10 px-2 hover:opacity-80 transition-opacity">
             <div className="p-2 bg-amber-500 rounded-lg">
               <GraduationCap className="text-emerald-950" size={24} />
             </div>
@@ -72,7 +72,7 @@ export default function StudentDashboard() {
               <h2 className="font-bold text-lg leading-tight">Student Portal</h2>
               <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Imam Malik College</p>
             </div>
-          </div>
+          </Link>
 
           <nav className="flex-grow space-y-1">
             {menuItems.map((item) => (
@@ -88,6 +88,14 @@ export default function StudentDashboard() {
                 {item.name}
               </Link>
             ))}
+            {/* Added Return Home Navigation Option */}
+            <Link
+              to="/"
+              className="flex items-center gap-3 px-4 py-3 rounded-xl text-emerald-100/60 hover:bg-white/5 hover:text-white transition-all group border border-dashed border-emerald-900/40 mt-4"
+            >
+              <Landmark size={20} className="text-emerald-100/40 group-hover:text-amber-500" />
+              <span>Go to Website Home</span>
+            </Link>
           </nav>
 
           <div className="pt-6 border-t border-emerald-900 text-center">
@@ -106,6 +114,15 @@ export default function StudentDashboard() {
           </div>
           
           <div className="flex items-center gap-4">
+            {/* Go Home Button */}
+            <Link 
+              to="/" 
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs font-black uppercase tracking-wider hover:bg-amber-100 transition-colors cursor-pointer"
+            >
+              <Landmark size={14} className="text-amber-600" />
+              <span>Main Site</span>
+            </Link>
+
             {/* Database Connection Badge */}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-slate-50 text-[11px] font-bold">
               <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`} />
@@ -144,8 +161,19 @@ export default function StudentDashboard() {
 }
 
 function StudentOverview({ application }: { application: any }) {
-  const { userData } = useAuth();
+  const { userData, user } = useAuth();
   const [showLetter, setShowLetter] = useState(false);
+
+  const fallbackApplication = {
+    id: application?.id || userData?.studentId || user?.uid?.slice(0, 10).toUpperCase() || 'IMSC-2026-ADM',
+    firstName: application?.firstName || userData?.displayName?.split(' ')[0] || 'Approved',
+    lastName: application?.lastName || userData?.displayName?.split(' ').slice(1).join(' ') || 'Applicant',
+    targetClassId: application?.targetClassId || userData?.targetClass || 'SS 2',
+    status: 'approved',
+    appliedDate: application?.appliedDate || new Date().toISOString()
+  };
+
+  const displayApplication = application || fallbackApplication;
 
   return (
     <div className="space-y-8">
@@ -218,7 +246,7 @@ function StudentOverview({ application }: { application: any }) {
 
       {/* Admission Letter Modal */}
       <AnimatePresence>
-        {showLetter && application && (
+        {showLetter && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }}
@@ -238,7 +266,7 @@ function StudentOverview({ application }: { application: any }) {
                 <button onClick={() => setShowLetter(false)} className="p-2 text-slate-400 hover:text-slate-950"><X size={24} /></button>
               </div>
               <div className="flex-grow overflow-y-auto p-4 md:p-8">
-                <AdmissionLetter application={application} />
+                <AdmissionLetter application={displayApplication} />
               </div>
             </motion.div>
           </div>

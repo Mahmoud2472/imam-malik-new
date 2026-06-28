@@ -81,7 +81,7 @@ export default function TeacherDashboard() {
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="h-full flex flex-col p-6">
-          <div className="flex items-center gap-3 mb-10 px-2">
+          <Link to="/" className="flex items-center gap-3 mb-10 px-2 hover:opacity-80 transition-opacity">
             <div className="p-2 bg-amber-500 rounded-lg">
               <BookOpen className="text-emerald-950" size={24} />
             </div>
@@ -89,7 +89,7 @@ export default function TeacherDashboard() {
               <h2 className="font-bold text-lg leading-tight text-white">Staff Portal</h2>
               <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Imam Malik College</p>
             </div>
-          </div>
+          </Link>
 
           <nav className="flex-grow space-y-1">
             {menuItems.map((item) => (
@@ -110,6 +110,14 @@ export default function TeacherDashboard() {
                 {item.name}
               </Link>
             ))}
+            {/* Added Return Home Navigation Option */}
+            <Link
+              to="/"
+              className="flex items-center gap-3 px-4 py-3 rounded-xl text-emerald-100/60 hover:bg-white/5 hover:text-white transition-all group border border-dashed border-emerald-900/40 mt-4"
+            >
+              <Landmark size={20} className="text-emerald-100/40 group-hover:text-amber-500" />
+              <span>Go to Website Home</span>
+            </Link>
           </nav>
 
           <div className="pt-6 border-t border-emerald-900">
@@ -142,6 +150,15 @@ export default function TeacherDashboard() {
           </div>
           
           <div className="flex items-center gap-6">
+            {/* Go Home Button */}
+            <Link 
+              to="/" 
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs font-black uppercase tracking-wider hover:bg-amber-100 transition-colors cursor-pointer"
+            >
+              <Landmark size={14} className="text-amber-600" />
+              <span>Main Site</span>
+            </Link>
+
             <div className="hidden md:flex items-center gap-4 text-xs font-bold text-slate-400 uppercase tracking-widest border-r border-slate-100 pr-6">
               {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
             </div>

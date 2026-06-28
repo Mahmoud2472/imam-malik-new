@@ -1011,7 +1011,25 @@ export default function AdmissionPage() {
 
     doc.line(20, nextY + 25, 190, nextY + 25);
     try {
-      doc.addImage(MAHMOUD_ADAMU_SIGNATURE, 'PNG', 20, nextY + 27, 30, 12);
+      // Dynamically convert SVG to PNG format using temporary HTML canvas for clean jsPDF insertion
+      const pngSignature = await new Promise<string>((resolve) => {
+        const img = new Image();
+        img.src = MAHMOUD_ADAMU_SIGNATURE;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 200;
+          canvas.height = 100;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, 200, 100);
+            resolve(canvas.toDataURL('image/png'));
+          } else {
+            resolve(MAHMOUD_ADAMU_SIGNATURE);
+          }
+        };
+        img.onerror = () => resolve(MAHMOUD_ADAMU_SIGNATURE);
+      });
+      doc.addImage(pngSignature, 'PNG', 20, nextY + 27, 30, 12);
     } catch (e) {
       console.warn("Signature addition failed:", e);
     }
