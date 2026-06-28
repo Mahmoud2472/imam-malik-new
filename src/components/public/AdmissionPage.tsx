@@ -1980,30 +1980,42 @@ export default function AdmissionPage() {
                   animate={{ opacity: 1, scale: 1 }}
                   className="py-6"
                 >
-                  {existingApplication?.status === 'approved' ? (
-                    <div className="space-y-6">
-                      <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-emerald-50 border border-emerald-100 p-6 rounded-2xl text-left shadow-sm no-print">
-                        <div>
-                          <h4 className="font-extrabold text-emerald-950 mb-1">🎉 Admission Confirmed!</h4>
-                          <p className="text-xs text-slate-600">Your application has been approved. You can print your Admission Letter or view the original Application Slip below for your records.</p>
+                  {existingApplication?.status === 'approved' || userData?.admissionStatus === 'approved' ? (
+                    (() => {
+                      const completeApp = existingApplication && existingApplication.status === 'approved' ? existingApplication : {
+                        id: existingApplication?.id || userData?.studentId || user?.uid?.slice(0, 10).toUpperCase() || 'IMSC-2026-ADM',
+                        firstName: existingApplication?.firstName || userData?.displayName?.split(' ')[0] || 'Approved',
+                        lastName: existingApplication?.lastName || userData?.displayName?.split(' ').slice(1).join(' ') || 'Applicant',
+                        targetClassId: existingApplication?.targetClassId || userData?.targetClass || 'SS 2',
+                        status: 'approved',
+                        appliedDate: existingApplication?.appliedDate || new Date().toISOString()
+                      };
+                      return (
+                        <div className="space-y-6">
+                          <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-emerald-50 border border-emerald-100 p-6 rounded-2xl text-left shadow-sm no-print">
+                            <div>
+                              <h4 className="font-extrabold text-emerald-950 mb-1">🎉 Admission Confirmed!</h4>
+                              <p className="text-xs text-slate-600">Your application has been approved. You can print your Admission Letter or view the original Application Slip below for your records.</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => generatePDF(completeApp, completeApp.id)}
+                                className="px-4 py-2 bg-emerald-800 text-white hover:bg-emerald-900 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                              >
+                                <Download size={14} /> Download Slip
+                              </button>
+                              <button 
+                                onClick={() => setShowPrintSlip(true)}
+                                className="px-4 py-2 bg-amber-500 text-white hover:bg-amber-600 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                              >
+                                <Printer size={14} /> Print Slip
+                              </button>
+                            </div>
+                          </div>
+                          <AdmissionLetter application={completeApp} />
                         </div>
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => generatePDF(existingApplication, existingApplication?.id || 'ID-ERR')}
-                            className="px-4 py-2 bg-emerald-800 text-white hover:bg-emerald-900 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
-                          >
-                            <Download size={14} /> Download Slip
-                          </button>
-                          <button 
-                            onClick={() => setShowPrintSlip(true)}
-                            className="px-4 py-2 bg-amber-500 text-white hover:bg-amber-600 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
-                          >
-                            <Printer size={14} /> Print Slip
-                          </button>
-                        </div>
-                      </div>
-                      <AdmissionLetter application={existingApplication} />
-                    </div>
+                      );
+                    })()
                   ) : (
                     <div className="text-center py-12">
                       <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-8">
