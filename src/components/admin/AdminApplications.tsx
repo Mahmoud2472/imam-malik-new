@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { CheckCircle, XCircle, Search, Filter, Loader2, Trash2, Eye, X } from 'lucide-react';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -11,13 +12,94 @@ export default function AdminApplications() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedApp, setSelectedApp] = useState<any>(null);
+  const [transactionId, setTransactionId] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('');
+  const [updatingPayment, setUpdatingPayment] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, "applications"), orderBy("appliedDate", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setApps(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    });
+    if (selectedApp) {
+      setTransactionId(selectedApp.transactionId || '');
+      setPaymentStatus(selectedApp.paymentStatus || 'pending');
+    }
+  }, [selectedApp]);
+
+  const handleSaveTransaction = async () => {
+    if (!selectedApp) return;
+    setUpdatingPayment(true);
+    try {
+      const updates = {
+        transactionId: transactionId,
+        paymentStatus: paymentStatus
+      };
+
+      if (isSupabaseConfigured) {
+        try {
+          await supabase.from('applications').update(updates).eq('id', selectedApp.id);
+        } catch (supErr) {
+          console.warn("Supabase payment update error:", supErr);
+        }
+      }
+
+      await updateDoc(doc(db, "applications", selectedApp.id), updates);
+
+      setSelectedApp((prev: any) => ({
+        ...prev,
+        transactionId: transactionId,
+        paymentStatus: paymentStatus
+      }));
+      alert("Application payment and transaction ID updated successfully!");
+    } catch (err) {
+      console.error("Error updating transaction details:", err);
+      alert("Failed to update transaction details. Please try again.");
+    } finally {
+      setUpdatingPayment(false);
+    }
+  };
+
+  useEffect(() => {
+    let unsubscribeFirestore: (() => void) | null = null;
+    let supabaseChannel: any = null;
+
+    if (isSupabaseConfigured) {
+      const fetchAppsFromSupabase = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('applications')
+            .select('*')
+            .order('appliedDate', { ascending: false });
+          if (error) throw error;
+          setApps(data || []);
+        } catch (err) {
+          console.error("Error fetching applications from Supabase:", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchAppsFromSupabase();
+
+      // Subscribe to real-time changes on applications table
+      supabaseChannel = supabase
+        .channel('admin-applications-realtime')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'applications' },
+          (payload: any) => {
+            console.log("Real-time update from Supabase applications table:", payload);
+            fetchAppsFromSupabase();
+          }
+        )
+        .subscribe();
+    } else {
+      const q = query(collection(db, "applications"), orderBy("appliedDate", "desc"));
+      unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+        setApps(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        setLoading(false);
+      }, (error) => {
+        console.error("Firestore applications onSnapshot error:", error);
+        setLoading(false);
+      });
+    }
 
     const qClasses = query(collection(db, "classes"));
     const unsubClasses = onSnapshot(qClasses, (snapshot) => {
@@ -25,7 +107,12 @@ export default function AdminApplications() {
     });
 
     return () => {
-      unsubscribe();
+      if (unsubscribeFirestore) unsubscribeFirestore();
+      if (supabaseChannel) {
+        supabase.removeChannel(supabaseChannel).catch((err: any) => {
+          console.warn("Error removing supabase channel:", err);
+        });
+      }
       unsubClasses();
     };
   }, []);
@@ -34,6 +121,17 @@ export default function AdminApplications() {
     if (window.confirm(`Approve application for ${app.firstName}? This will grant them official admission status.`)) {
       try {
         // 1. Update Application status
+        if (isSupabaseConfigured) {
+          try {
+            await supabase.from('applications').update({
+              status: 'approved',
+              approvedDate: new Date().toISOString()
+            }).eq('id', app.id);
+          } catch (supErr) {
+            console.warn("Supabase approval sync error:", supErr);
+          }
+        }
+
         await updateDoc(doc(db, "applications", app.id), { 
           status: 'approved',
           approvedDate: serverTimestamp() 
@@ -82,6 +180,16 @@ export default function AdminApplications() {
   const rejectApp = async (app: any) => {
     if (window.confirm(`Are you sure you want to reject ${app.firstName}'s application?`)) {
       try {
+        if (isSupabaseConfigured) {
+          try {
+            await supabase.from('applications').update({
+              status: 'rejected'
+            }).eq('id', app.id);
+          } catch (supErr) {
+            console.warn("Supabase rejection sync error:", supErr);
+          }
+        }
+
         await updateDoc(doc(db, "applications", app.id), { 
           status: 'rejected' 
         });
@@ -124,6 +232,13 @@ export default function AdminApplications() {
 
   const deleteApp = async (id: string) => {
     if (window.confirm("Permanently delete this application record?")) {
+      if (isSupabaseConfigured) {
+        try {
+          await supabase.from('applications').delete().eq('id', id);
+        } catch (supErr) {
+          console.warn("Supabase delete sync error:", supErr);
+        }
+      }
       await deleteDoc(doc(db, "applications", id));
     }
   };
@@ -304,6 +419,9 @@ export default function AdminApplications() {
                    <div className="space-y-1">
                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Payment Status</p>
                      <p className="font-black text-emerald-600 uppercase text-xs">{selectedApp.paymentStatus || 'Verified'}</p>
+                     {selectedApp.transactionId && (
+                       <p className="text-[10px] font-mono font-bold text-slate-500 mt-1">Ref: {selectedApp.transactionId}</p>
+                     )}
                    </div>
                    <div className="text-right">
                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Current Status</p>
@@ -318,6 +436,50 @@ export default function AdminApplications() {
                    </div>
                 </div>
               </div>
+                 <div className="p-6 border-t border-slate-100 bg-slate-50/50 space-y-4">
+                     <div className="flex items-center gap-2">
+                       <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+                       <h4 className="text-xs font-black text-emerald-950 uppercase tracking-wider">Manual Payment Verification</h4>
+                     </div>
+                     <p className="text-[10px] text-slate-500 leading-relaxed font-semibold">
+                       Manually verify application fees or record offline references. Applicants will instantly be able to access their registration form or download/print their Application Slip from their dashboard.
+                     </p>
+                     <div className="grid grid-cols-2 gap-4">
+                       <div className="space-y-1.5">
+                         <label className="text-[9px] text-slate-400 font-bold uppercase tracking-widest block">Transaction ID / Reference</label>
+                         <input
+                           type="text"
+                           value={transactionId}
+                           onChange={(e) => setTransactionId(e.target.value)}
+                           placeholder="e.g. TXN-10293847"
+                           className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                         />
+                       </div>
+                       <div className="space-y-1.5">
+                         <label className="text-[9px] text-slate-400 font-bold uppercase tracking-widest block">Payment Status</label>
+                         <select
+                           value={paymentStatus}
+                           onChange={(e) => setPaymentStatus(e.target.value)}
+                           className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                         >
+                           <option value="pending">Pending</option>
+                           <option value="verified">Verified</option>
+                           <option value="failed">Failed</option>
+                         </select>
+                       </div>
+                     </div>
+                     <div className="flex justify-end pt-2">
+                       <button
+                         type="button"
+                         onClick={handleSaveTransaction}
+                         disabled={updatingPayment}
+                         className="px-4 py-2 bg-emerald-900 text-white hover:bg-emerald-800 disabled:opacity-50 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                       >
+                         {updatingPayment ? <Loader2 className="animate-spin" size={14} /> : null}
+                         Save Payment Info
+                       </button>
+                     </div>
+                 </div>
               <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
                  {selectedApp.status !== 'approved' && (
                    <button 

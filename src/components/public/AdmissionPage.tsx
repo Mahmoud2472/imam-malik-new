@@ -4,7 +4,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, CreditCard, FileText, UserPlus, Download, AlertCircle, Loader2, ShieldCheck, LogIn, Printer, Bell, Mail, Check, X } from 'lucide-react';
 import { db } from '../../lib/firebase';
-import { collection, query, where, onSnapshot, getDocs, updateDoc, doc, orderBy, addDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs, updateDoc, doc, orderBy, addDoc, limit } from 'firebase/firestore';
 import { supabase } from '../../lib/supabase';
 import { jsPDF } from 'jspdf';
 import { generateId, formatDate, cn, formatCurrency, MAHMOUD_ADAMU_SIGNATURE } from '../../lib/utils';
@@ -318,6 +318,22 @@ export default function AdmissionPage() {
               verificationMethod: silent ? 'url_redirect' : 'manual_entry'
             });
             console.log("Firebase payment save completed successfully!");
+
+            // Create automated dashboard notification for admins
+            try {
+              await addDoc(collection(db, "notifications"), {
+                userId: 'admin', // target role
+                applicantEmail: user?.email || 'guest@school.com',
+                title: "New Admission Payment: Verified! 💳",
+                message: `An admission payment of ₦${admissionFee.amount.toLocaleString()} has been completed successfully by ${user?.displayName || 'an applicant'} (Email: ${user?.email || 'N/A'}) with reference ${reference}.`,
+                type: "admission_payment",
+                status: "unread",
+                createdAt: new Date().toISOString()
+              });
+              console.log("Admin payment notification created successfully!");
+            } catch (notifErr) {
+              console.warn("Could not create admin notification for payment:", notifErr);
+            }
           } catch (firePayErr) {
             console.warn("Firebase payment save skipped or failed:", firePayErr);
           }
@@ -608,6 +624,17 @@ export default function AdmissionPage() {
           } catch (payErr) {
             console.warn("Supabase payment check failed. Relying on local memory and localstorage.", payErr);
           }
+
+          // Fallback check in Firestore for payment documentation
+          if (!foundPayment) {
+            try {
+              const qPay = query(collection(db, "payments"), where("studentId", "==", user.uid));
+              const snapPay = await getDocs(qPay);
+              foundPayment = !snapPay.empty;
+            } catch (firePayErr) {
+              console.warn("Firestore payment check failed:", firePayErr);
+            }
+          }
         }
 
         const isPaid = verifiedJustNow || foundPayment || (user?.uid ? localStorage.getItem(`imsc_paid_uid_${user.uid}`) === 'true' : false);
@@ -627,6 +654,19 @@ export default function AdmissionPage() {
             }
           } catch (appQueryErr) {
             console.warn("Supabase application check failed. Falling back to local storage.", appQueryErr);
+          }
+
+          // Fallback check in Firestore for existing application
+          if (!foundApp) {
+            try {
+              const qApp = query(collection(db, "applications"), where("userId", "==", user.uid), limit(1));
+              const snapApp = await getDocs(qApp);
+              if (!snapApp.empty) {
+                foundApp = { id: snapApp.docs[0].id, ...snapApp.docs[0].data() };
+              }
+            } catch (fireAppErr) {
+              console.warn("Firestore application check failed:", fireAppErr);
+            }
           }
         }
 

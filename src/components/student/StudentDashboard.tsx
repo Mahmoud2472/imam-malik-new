@@ -10,14 +10,14 @@ import { motion, AnimatePresence } from 'motion/react';
 import { signOut } from 'firebase/auth';
 import { auth, db, storage } from '../../lib/firebase';
 import { useAuth } from '../../lib/auth';
-import { cn, formatCurrency, formatDate } from '../../lib/utils';
+import { cn, formatCurrency, formatDate, MAHMOUD_ADAMU_SIGNATURE } from '../../lib/utils';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { collection, query, where, getDocs, limit, updateDoc, doc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import AdmissionLetter from '../public/AdmissionLetter';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import QRCode from 'qrcode';
+import AdmissionLetter from '../public/AdmissionLetter';
 
 export default function StudentDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -27,12 +27,16 @@ export default function StudentDashboard() {
   const { userData, user } = useAuth();
 
   useEffect(() => {
-    if (user && userData?.admissionStatus === 'approved') {
+    if (user) {
       const fetchApp = async () => {
-        const q = query(collection(db, "applications"), where("userId", "==", user.uid), limit(1));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          setApplication({ id: snap.docs[0].id, ...snap.docs[0].data() });
+        try {
+          const q = query(collection(db, "applications"), where("userId", "==", user.uid), limit(1));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            setApplication({ id: snap.docs[0].id, ...snap.docs[0].data() });
+          }
+        } catch (err) {
+          console.warn("Could not fetch application for student dashboard overview:", err);
         }
       };
       fetchApp();
@@ -163,12 +167,22 @@ export default function StudentDashboard() {
 function StudentOverview({ application }: { application: any }) {
   const { userData, user } = useAuth();
   const [showLetter, setShowLetter] = useState(false);
+  const [showPrintSlip, setShowPrintSlip] = useState(false);
+
+  const CLASSES = [
+    { id: 'jss1', name: 'JSS 1' },
+    { id: 'jss2', name: 'JSS 2' },
+    { id: 'jss3', name: 'JSS 3' },
+    { id: 'ss1', name: 'SS 1' },
+    { id: 'ss2', name: 'SS 2' },
+    { id: 'ss3', name: 'SS 3' },
+  ];
 
   const fallbackApplication = {
     id: application?.id || userData?.studentId || user?.uid?.slice(0, 10).toUpperCase() || 'IMSC-2026-ADM',
     firstName: application?.firstName || userData?.displayName?.split(' ')[0] || 'Approved',
     lastName: application?.lastName || userData?.displayName?.split(' ').slice(1).join(' ') || 'Applicant',
-    targetClassId: application?.targetClassId || userData?.targetClass || 'SS 2',
+    targetClassId: application?.targetClassId || userData?.targetClass || 'ss2',
     status: 'approved',
     appliedDate: application?.appliedDate || new Date().toISOString()
   };
@@ -197,21 +211,37 @@ function StudentOverview({ application }: { application: any }) {
                     <span className="text-sm font-medium opacity-80 uppercase">Class: {userData?.targetClass || 'SS 2'}</span>
                   </div>
                 </div>
-                {userData?.admissionStatus === 'approved' && (
-                  <button 
-                    onClick={() => setShowLetter(true)}
-                    className="px-4 py-2 bg-white text-emerald-950 rounded-xl text-xs font-black uppercase tracking-tighter hover:bg-amber-500 transition-colors shadow-lg"
-                  >
-                    Admission Letter
-                  </button>
-                )}
               </div>
+            </div>
+          </div>
+
+          {/* Admission & Registration Slip Section */}
+          <div className="glass-card p-6 border-l-4 border-amber-500 bg-white shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+              <GraduationCap className="text-amber-500" size={18} /> Official Admission Documents
+            </h3>
+            <p className="text-xs text-slate-500">
+              Your application has been approved! Below, you can view, print or download your official **Admission Letter** and your registered **Admission Application Slip** for physical screening and files submission.
+            </p>
+            <div className="flex flex-wrap gap-4 pt-2">
+              <button 
+                onClick={() => setShowLetter(true)}
+                className="px-4 py-2 bg-emerald-900 hover:bg-emerald-850 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-sm"
+              >
+                <FileText size={16} /> View Admission Letter
+              </button>
+              <button 
+                onClick={() => setShowPrintSlip(true)}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-sm"
+              >
+                <Printer size={16} /> Print Application Slip
+              </button>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
              <div className="glass-card p-6 border-l-4 border-emerald-600">
-               <h4 className="text-xs font-bold text-slate-400 uppercase mb-4">Acadmic Standing</h4>
+               <h4 className="text-xs font-bold text-slate-400 uppercase mb-4">Academic Standing</h4>
                <div className="flex items-end gap-2">
                  <span className="text-3xl font-bold text-emerald-950">A-</span>
                  <span className="text-xs text-emerald-600 font-bold mb-1 opacity-60">Avg: 78.4%</span>
@@ -247,26 +277,222 @@ function StudentOverview({ application }: { application: any }) {
       {/* Admission Letter Modal */}
       <AnimatePresence>
         {showLetter && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] overflow-y-auto bg-slate-900/80 backdrop-blur-sm flex justify-center p-4 md:p-8 no-print">
             <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowLetter(false)}
-              className="absolute inset-0 bg-slate-950/60 backdrop-blur-md"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-5xl bg-slate-50 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-4xl bg-white rounded-3xl shadow-2xl p-4 overflow-y-auto"
             >
-              <div className="p-6 bg-white border-b border-slate-200 flex justify-between items-center shrink-0">
-                <h3 className="font-black text-emerald-950 uppercase tracking-tighter">Your Official Admission Letter</h3>
-                <button onClick={() => setShowLetter(false)} className="p-2 text-slate-400 hover:text-slate-950"><X size={24} /></button>
+              <div className="flex justify-between items-center p-4 border-b">
+                <h3 className="font-bold text-emerald-950">Admission Letter Viewer</h3>
+                <button 
+                  onClick={() => setShowLetter(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs transition-colors"
+                >
+                  Close
+                </button>
               </div>
-              <div className="flex-grow overflow-y-auto p-4 md:p-8">
+              <div className="p-4">
                 <AdmissionLetter application={displayApplication} />
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Printable Slip Preview Modal */}
+      <AnimatePresence>
+        {showPrintSlip && (
+          <div className="fixed inset-0 z-[100] overflow-y-auto bg-slate-900/80 backdrop-blur-sm flex justify-center p-4 md:p-8 print:p-0 print:bg-white print:backdrop-blur-none no-print">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-4xl bg-white rounded-3xl shadow-2xl p-8 md:p-12 print:shadow-none print:border-none print:p-0 print:m-0 flex flex-col gap-8 text-slate-800"
+            >
+              {/* Controls - Hidden on print! */}
+              <div className="flex justify-between items-center pb-4 border-b border-slate-100 print:hidden shrink-0">
+                <div>
+                  <h3 className="font-black text-emerald-950 uppercase tracking-tighter">Application Slip Preview</h3>
+                  <p className="text-xs text-slate-400">Review and print your official completed application form</p>
+                </div>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => window.print()}
+                    className="px-6 py-2.5 bg-emerald-900 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-800 transition-colors flex items-center gap-2 shadow-md"
+                  >
+                    <Printer size={16} /> Print Document
+                  </button>
+                  <button 
+                    onClick={() => setShowPrintSlip(false)}
+                    className="px-4 py-2 bg-slate-100 text-slate-705 hover:bg-slate-200 rounded-xl text-xs font-bold transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              {/* Printable Area */}
+              <div className="bg-white print:p-0 text-left">
+                {/* Header Letterhead section */}
+                <div className="flex justify-between items-center border-b-4 border-emerald-900 pb-6 mb-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-20 h-20 bg-emerald-950 rounded-2xl flex items-center justify-center overflow-hidden shrink-0 border border-emerald-800">
+                      <img src="https://res.cloudinary.com/dswuqqfuk/image/upload/v1768901131/logo.jpg_imoamc.jpg" alt="School Logo" className="w-full h-full object-cover" />
+                    </div>
+                    <div>
+                      <h1 className="text-2xl font-serif font-black text-emerald-950 tracking-tight leading-none uppercase">Imam Malik Science & Tahfiz College</h1>
+                      <p className="text-xs text-amber-600 font-extrabold uppercase tracking-widest mt-1">Admissions & Academic Records Bureau</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Karefa Road Tudun Wada Dankadai, Kano State | Tel: 07011748311</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-center bg-emerald-50 text-emerald-950 border border-emerald-100 py-2.5 rounded-xl font-serif font-extrabold text-xs uppercase tracking-widest mb-8">
+                  Official Admission Application Slip & Profile Summary
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+                  {/* Biography details */}
+                  <div className="md:col-span-3 space-y-8">
+                    <div className="grid grid-cols-2 gap-4 border-b border-slate-100 pb-4">
+                      <div>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Application Slip ID</p>
+                        <p className="text-sm font-semibold text-slate-800 font-mono tracking-wider">
+                          {(displayApplication.id || 'IMSC-PENDING').toUpperCase()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Date of Application</p>
+                        <p className="text-sm font-semibold text-slate-800">{formatDate(displayApplication.appliedDate || new Date().toISOString())}</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-black text-emerald-900 uppercase tracking-wider border-b border-emerald-900/10 pb-1">1. Student Biography</h4>
+                      <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-xs">
+                        <div>
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">First Name</span>
+                          <span className="font-bold text-slate-800 text-sm">{displayApplication.firstName}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Last Name</span>
+                          <span className="font-bold text-slate-800 text-sm">{displayApplication.lastName}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Gender Placement</span>
+                          <span className="font-semibold text-slate-700">{displayApplication.gender || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Date of Birth (DOB)</span>
+                          <span className="font-semibold text-slate-700">{displayApplication.dateOfBirth || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Registered Email</span>
+                          <span className="font-semibold text-slate-700">{displayApplication.email || userData?.email || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Class Registered</span>
+                          <span className="font-bold text-slate-800 uppercase text-sm">
+                            {CLASSES.find(c => c.id === displayApplication.targetClassId)?.name || displayApplication.targetClassId?.toUpperCase() || 'SS 2'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-black text-emerald-900 uppercase tracking-wider border-b border-emerald-900/10 pb-1">2. Previous Academic History</h4>
+                      <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                        <div>
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Primary School Name</span>
+                          <span className="font-bold text-slate-800">{displayApplication.primarySchool || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Years Attended (Primary)</span>
+                          <span className="font-bold text-slate-700">
+                            {displayApplication.primarySchoolStart || 'N/A'} - {displayApplication.primarySchoolEnd || 'N/A'}
+                          </span>
+                        </div>
+                        <div className="pt-2 border-t border-slate-200/60 col-span-2">
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Islamiyya School Name</span>
+                          <span className="font-bold text-slate-800">{displayApplication.islamiyyaSchool || 'N/A'}</span>
+                        </div>
+                        <div className="pt-2 border-t border-slate-200/60 col-span-2">
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Years Attended (Islamiyya)</span>
+                          <span className="font-bold text-slate-700">
+                            {displayApplication.islamiyyaSchoolStart || 'N/A'} - {displayApplication.islamiyyaSchoolEnd || 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-black text-emerald-900 uppercase tracking-wider border-b border-emerald-900/10 pb-1">3. Parent / Guardian Records</h4>
+                      <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-xs bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                        <div>
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Guardian Name</span>
+                          <span className="font-bold text-slate-800">{displayApplication.guardianName || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Guardian Phone</span>
+                          <span className="font-bold text-slate-800">{displayApplication.guardianPhone || 'N/A'}</span>
+                        </div>
+                        <div className="pt-2 border-t border-slate-200/60 col-span-2">
+                          <span className="text-slate-400 font-bold uppercase block mb-0.5">Residential Address</span>
+                          <span className="font-semibold text-slate-600 leading-relaxed">{displayApplication.address || 'N/A'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {displayApplication.transactionId && (
+                      <div className="pt-4 border-t border-slate-100">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1">Transaction ID / Number</p>
+                        <p className="text-xs font-mono font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg inline-block">
+                          {displayApplication.transactionId}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Photo & Signature layout block */}
+                  <div className="md:col-span-1 flex flex-col gap-8 items-center border-l border-slate-100 pl-4">
+                    <div className="w-32 h-40 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50 flex flex-col items-center justify-center text-center p-2 shrink-0 overflow-hidden">
+                      {displayApplication.passportPhoto ? (
+                        <img src={displayApplication.passportPhoto} alt="Passport Photo" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-extrabold uppercase">Passport Photograph</span>
+                      )}
+                    </div>
+
+                    <div className="w-full text-center border-t border-slate-100 pt-6 flex flex-col items-center">
+                      <div className="h-12 w-32 mb-2 flex items-center justify-center">
+                        <img src={MAHMOUD_ADAMU_SIGNATURE} alt="Authorized Signature" className="h-10 object-contain" />
+                      </div>
+                      <p className="text-[10px] font-black text-emerald-950 uppercase leading-none">Mahmoud Adamu</p>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Secretary, Governing Board</p>
+                    </div>
+
+                    {/* QR Verification embedded on Slip */}
+                    <div className="w-full pt-6 border-t border-slate-100 flex flex-col items-center justify-center text-center">
+                      <div className="w-24 h-24 mx-auto bg-white border border-slate-200 p-1 rounded-xl flex items-center justify-center shadow-inner">
+                        <img 
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=VERIFY-IMSC-${displayApplication.id}`} 
+                          alt="Registration QR Code" 
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-none">Scan to Verify</p>
+                      <p className="text-[7px] text-slate-300 font-mono mt-0.5">IMSC SECURITY CODE</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-6 border-t border-slate-200 text-center">
+                  <p className="text-[9px] font-medium text-slate-400 italic">
+                    Important Note: Please keep this slip safe and bring it along with you to the entrance examination. The date will be communicated.
+                  </p>
+                </div>
               </div>
             </motion.div>
           </div>

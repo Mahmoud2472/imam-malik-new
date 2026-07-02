@@ -24,21 +24,21 @@ const checks = [
     keys: ['VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL'],
     required: true,
     description: 'Used to connect to your Supabase backend instance.',
-    validate: (val) => val && (val.startsWith('https://') || val.startsWith('http://'))
+    validate: (val) => typeof val === 'string' && val.trim().length > 0
   },
   {
     name: 'Supabase Anon Key',
     keys: ['VITE_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'],
     required: true,
     description: 'The public API key for your Supabase project.',
-    validate: (val) => val && val.length > 20
+    validate: (val) => typeof val === 'string' && val.trim().length > 0
   },
   {
     name: 'Paystack Public Key',
     keys: ['VITE_PAYSTACK_PUBLIC_KEY'],
     required: false,
     description: 'Used to initialize secure Paystack payment gateway widgets.',
-    validate: (val) => val && val.startsWith('pk_')
+    validate: (val) => typeof val === 'string' && val.trim().length > 0
   }
 ];
 

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { safeStorage } from './safeStorage';
 import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from './supabase-defaults';
+import { db, auth } from './firebase';
 
 // Read configuration from browser local storage OR environment OR code-level defaults
 let rawSupabaseUrl = 
@@ -10,6 +11,11 @@ let rawSupabaseUrl =
   '';
 
 rawSupabaseUrl = rawSupabaseUrl.trim();
+
+// If rawSupabaseUrl is specified but has no protocol, auto-prepend https://
+if (rawSupabaseUrl && !rawSupabaseUrl.startsWith('http://') && !rawSupabaseUrl.startsWith('https://')) {
+  rawSupabaseUrl = 'https://' + rawSupabaseUrl;
+}
 
 // Remove any trailing slashes repeatedly
 while (rawSupabaseUrl.endsWith('/')) {
@@ -135,79 +141,230 @@ const saveMockData = (table: string, data: any[]) => {
 
 // --- CLIENT-SIDE MOCK CLIENT GENERATOR ---
 const generateMockSupabaseClient = () => {
+  // We use real Firebase Auth and Firestore when Supabase is not configured
   const listeners: Set<any> = new Set();
-  
-  const triggerAuthChange = (event: string, session: any) => {
-    listeners.forEach(cb => {
-      try {
-        cb(event, session);
-      } catch (err) {
-        console.error("Error invoking mock auth listener:", err);
+
+  // Helper for Firestore queries and caching
+  const getFirebaseData = async (
+    table: string, 
+    filters: any[], 
+    orderField: string | null, 
+    orderDirection: 'asc' | 'desc', 
+    limitCount: number | null
+  ) => {
+    try {
+      const { collection, getDocs, query, where, orderBy, limit, doc, getDoc } = await import('firebase/firestore');
+
+      // Check single doc query by id
+      const idFilter = filters.find(f => f.colName === 'id' && f.op === '==');
+      if (idFilter) {
+        const docRef = doc(db, table, idFilter.val);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          return [{ id: docSnap.id, ...docSnap.data() }];
+        } else {
+          return [];
+        }
       }
-    });
+
+      const qConstraints: any[] = [];
+      filters.forEach(f => {
+        qConstraints.push(where(f.colName, f.op, f.val));
+      });
+
+      if (orderField) {
+        qConstraints.push(orderBy(orderField, orderDirection));
+      }
+      if (limitCount !== null) {
+        qConstraints.push(limit(limitCount));
+      }
+
+      const q = query(collection(db, table), ...qConstraints);
+      const snapshot = await getDocs(q);
+      const docs = snapshot.docs.map(docObj => ({ id: docObj.id, ...docObj.data() }));
+
+      // Fallbacks if Firestore returns empty
+      if (docs.length === 0) {
+        if (table === 'fees') {
+          return [
+            { id: 'fee-1', name: 'Admission & Prospectus Fee', amount: 1000, description: 'Mandatory registration fee for new applicants' },
+            { id: 'fee-2', name: '1st Term School Fees', amount: 35000, description: 'Tuition and learning materials' },
+            { id: 'fee-3', name: 'School Uniform Pack', amount: 10000, description: 'Custom college uniform and sportswear' }
+          ];
+        }
+        if (table === 'config') {
+          return [
+            {
+              id: 'admission_settings',
+              netlifyFormUrl: 'https://formbold.com/s/9mBJY',
+              useExternalForm: false,
+              paystackPublicKey: 'pk_live_322d4bde836a684b28f791049b8c3997742c8985',
+              admissionFeeAmount: 1000,
+              updatedAt: new Date().toISOString()
+            }
+          ];
+        }
+      }
+
+      return docs;
+    } catch (err) {
+      console.warn(`Firestore read fallback for table ${table} failed, using local storage.`, err);
+      // Local storage fallback
+      let rows = getMockData(table);
+      filters.forEach(f => {
+        if (f.op === '==') {
+          rows = rows.filter(r => r[f.colName] === f.val);
+        } else if (f.op === '!=') {
+          rows = rows.filter(r => r[f.colName] !== f.val);
+        }
+      });
+      if (orderField) {
+        rows = [...rows].sort((a, b) => {
+          if (a[orderField] < b[orderField]) return orderDirection === 'asc' ? -1 : 1;
+          if (a[orderField] > b[orderField]) return orderDirection === 'asc' ? 1 : -1;
+          return 0;
+        });
+      }
+      if (limitCount !== null) {
+        rows = rows.slice(0, limitCount);
+      }
+      return rows;
+    }
+  };
+
+  const saveFirebaseData = async (table: string, payloadArray: any[]) => {
+    try {
+      const { doc, setDoc } = await import('firebase/firestore');
+
+      const savedRows = [];
+      for (const item of payloadArray) {
+        const id = item.id || 'rec-' + Math.floor(Math.random() * 10000000);
+        const docRef = doc(db, table, id);
+        const payload = {
+          id,
+          created_at: new Date().toISOString(),
+          ...item
+        };
+        await setDoc(docRef, payload, { merge: true });
+        savedRows.push(payload);
+      }
+      return savedRows;
+    } catch (err) {
+      console.warn(`Firestore write fallback for table ${table} failed, using local storage.`, err);
+      // Local storage write
+      let rows = getMockData(table);
+      const savedRows: any[] = [];
+      payloadArray.forEach(item => {
+        const id = item.id || 'rec-' + Math.floor(Math.random() * 10000000);
+        const payload = {
+          id,
+          created_at: new Date().toISOString(),
+          ...item
+        };
+        const idx = rows.findIndex(r => r.id === id);
+        if (idx > -1) {
+          rows[idx] = { ...rows[idx], ...payload };
+        } else {
+          rows.push(payload);
+        }
+        savedRows.push(payload);
+      });
+      saveMockData(table, rows);
+      return savedRows;
+    }
+  };
+
+  const updateFirebaseData = async (table: string, filters: any[], updates: any) => {
+    try {
+      const { doc, updateDoc, collection, getDocs, query, where } = await import('firebase/firestore');
+
+      const idFilter = filters.find(f => f.colName === 'id' && f.op === '==');
+      if (idFilter) {
+        const docRef = doc(db, table, idFilter.val);
+        await updateDoc(docRef, {
+          ...updates,
+          updated_at: new Date().toISOString()
+        });
+        return [{ id: idFilter.val, ...updates }];
+      }
+
+      const qConstraints = filters.map(f => where(f.colName, f.op, f.val));
+      const q = query(collection(db, table), ...qConstraints);
+      const snapshot = await getDocs(q);
+      const updatedRows = [];
+      for (const docObj of snapshot.docs) {
+        const docRef = doc(db, table, docObj.id);
+        await updateDoc(docRef, {
+          ...updates,
+          updated_at: new Date().toISOString()
+        });
+        updatedRows.push({ id: docObj.id, ...docObj.data(), ...updates });
+      }
+      return updatedRows;
+    } catch (err) {
+      console.warn(`Firestore update fallback for table ${table} failed, using local storage.`, err);
+      // Local storage update
+      let rows = getMockData(table);
+      const updatedRows: any[] = [];
+      rows = rows.map(r => {
+        let matches = true;
+        filters.forEach(f => {
+          if (f.op === '==') {
+            if (r[f.colName] !== f.val) matches = false;
+          } else if (f.op === '!=') {
+            if (r[f.colName] === f.val) matches = false;
+          }
+        });
+        if (matches) {
+          const updated = { ...r, ...updates, updated_at: new Date().toISOString() };
+          updatedRows.push(updated);
+          return updated;
+        }
+        return r;
+      });
+      saveMockData(table, rows);
+      return updatedRows;
+    }
+  };
+
+  const deleteFirebaseData = async (table: string, filters: any[]) => {
+    try {
+      const { doc, deleteDoc, collection, getDocs, query, where } = await import('firebase/firestore');
+
+      const idFilter = filters.find(f => f.colName === 'id' && f.op === '==');
+      if (idFilter) {
+        const docRef = doc(db, table, idFilter.val);
+        await deleteDoc(docRef);
+        return { error: null };
+      }
+
+      const qConstraints = filters.map(f => where(f.colName, f.op, f.val));
+      const q = query(collection(db, table), ...qConstraints);
+      const snapshot = await getDocs(q);
+      for (const docObj of snapshot.docs) {
+        const docRef = doc(db, table, docObj.id);
+        await deleteDoc(docRef);
+      }
+      return { error: null };
+    } catch (err: any) {
+      console.error(`Error deleting from table ${table}:`, err);
+      return { error: err };
+    }
   };
 
   return {
     auth: {
       signUp: async ({ email, password, options }: any) => {
-        console.log('[Mock Supabase Auth] Registering user:', email);
-        const profiles = getMockData('profiles');
-        
-        // Prevent duplicate register email in mock mode
-        if (profiles.some(p => p.email === email)) {
-          return { data: { user: null }, error: { message: 'User already exists' } };
-        }
+        console.log('[Firebase Auth Proxy] Registering:', email);
+        try {
+          const { createUserWithEmailAndPassword } = await import('firebase/auth');
+          const { doc, setDoc } = await import('firebase/firestore');
 
-        const mockId = 'usr-' + Math.floor(Math.random() * 1000000);
-        let role = 'applicant';
-        const emailLower = email.toLowerCase();
-        if (emailLower.includes('admin')) {
-          role = 'admin';
-        } else if (emailLower.includes('teacher')) {
-          role = 'teacher';
-        } else if (emailLower.includes('student')) {
-          role = 'student';
-        }
+          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          const user = userCredential.user;
 
-        const meta = options?.data || {};
-        const newProfile = {
-          id: mockId,
-          email,
-          role,
-          displayName: meta.displayName || email.split('@')[0],
-          createdAt: new Date().toISOString()
-        };
-
-        profiles.push(newProfile);
-        saveMockData('profiles', profiles);
-
-        const mockUser = {
-          id: mockId,
-          email,
-          user_metadata: meta
-        };
-
-        const session = {
-          user: mockUser,
-          access_token: 'mock-token'
-        };
-
-        safeStorage.setItem('imsc_active_user_id', mockId);
-        
-        // Notify subscription listeners of sign up
-        setTimeout(() => triggerAuthChange('SIGNED_IN', session), 0);
-
-        return { data: { user: mockUser, session }, error: null };
-      },
-      signInWithPassword: async ({ email, password }: any) => {
-        console.log('[Mock Supabase Auth] Logging in:', email);
-        const profiles = getMockData('profiles');
-        let userProfile = profiles.find(p => p.email === email);
-        
-        if (!userProfile) {
-          console.log('[Mock Supabase Auth] Auto-registering user on new device:', email);
-          const mockId = 'usr-' + Math.floor(Math.random() * 1000000);
-          let role = 'applicant';
+          const meta = options?.data || {};
+          let role = meta.role || 'applicant';
           const emailLower = email.toLowerCase();
           if (emailLower.includes('admin')) {
             role = 'admin';
@@ -217,280 +374,292 @@ const generateMockSupabaseClient = () => {
             role = 'student';
           }
 
-          userProfile = {
-            id: mockId,
+          const profilePayload = {
+            id: user.uid,
             email,
             role,
-            displayName: email.split('@')[0],
+            displayName: meta.displayName || email.split('@')[0],
             createdAt: new Date().toISOString()
           };
 
-          profiles.push(userProfile);
-          saveMockData('profiles', profiles);
+          // Store profile in both 'profiles' and 'users' collections for firestore.rules and compatibility
+          await setDoc(doc(db, 'profiles', user.uid), profilePayload);
+          await setDoc(doc(db, 'users', user.uid), profilePayload);
+
+          const mockUser = { id: user.uid, email, user_metadata: meta };
+          const session = { user: mockUser, access_token: 'firebase-token' };
+
+          safeStorage.setItem('imsc_active_user_id', user.uid);
+          return { data: { user: mockUser, session }, error: null };
+        } catch (err: any) {
+          console.error("Firebase signUp proxy failure:", err);
+          return { data: { user: null }, error: err };
         }
+      },
+      signInWithPassword: async ({ email, password }: any) => {
+        console.log('[Firebase Auth Proxy] Signing in:', email);
+        try {
+          const { signInWithEmailAndPassword } = await import('firebase/auth');
+          const { doc, getDoc, setDoc } = await import('firebase/firestore');
 
-        const mockUser = {
-          id: userProfile.id,
-          email: userProfile.email,
-          user_metadata: { displayName: userProfile.displayName }
-        };
+          const userCredential = await signInWithEmailAndPassword(auth, email, password);
+          const user = userCredential.user;
 
-        const session = {
-          user: mockUser,
-          access_token: 'mock-token'
-        };
+          // Fetch or auto-provision profile
+          let profileDoc = await getDoc(doc(db, 'profiles', user.uid));
+          let profile = profileDoc.data();
 
-        safeStorage.setItem('imsc_active_user_id', userProfile.id);
+          if (!profile) {
+            let role = 'applicant';
+            const emailLower = email.toLowerCase();
+            if (emailLower.includes('admin')) {
+              role = 'admin';
+            } else if (emailLower.includes('teacher')) {
+              role = 'teacher';
+            } else if (emailLower.includes('student')) {
+              role = 'student';
+            }
 
-        setTimeout(() => triggerAuthChange('SIGNED_IN', session), 0);
+            profile = {
+              id: user.uid,
+              email,
+              role,
+              displayName: email.split('@')[0],
+              createdAt: new Date().toISOString()
+            };
 
-        return { data: { user: mockUser, session }, error: null };
+            await setDoc(doc(db, 'profiles', user.uid), profile);
+            await setDoc(doc(db, 'users', user.uid), profile);
+          }
+
+          const mockUser = {
+            id: user.uid,
+            email: user.email,
+            user_metadata: { displayName: profile.displayName || user.displayName }
+          };
+
+          const session = { user: mockUser, access_token: 'firebase-token' };
+          safeStorage.setItem('imsc_active_user_id', user.uid);
+          return { data: { user: mockUser, session }, error: null };
+        } catch (err: any) {
+          console.error("Firebase signInWithPassword proxy failure:", err);
+          return { data: { user: null }, error: err };
+        }
       },
       signOut: async () => {
-        console.log('[Mock Supabase Auth] Logged out.');
-        safeStorage.removeItem('imsc_active_user_id');
-        setTimeout(() => triggerAuthChange('SIGNED_OUT', null), 0);
-        return { error: null };
+        console.log('[Firebase Auth Proxy] Signing out...');
+        try {
+          const { signOut: fbSignOut } = await import('firebase/auth');
+          await fbSignOut(auth);
+          safeStorage.removeItem('imsc_active_user_id');
+          return { error: null };
+        } catch (err: any) {
+          console.error("Firebase signOut proxy failure:", err);
+          return { error: err };
+        }
       },
       getSession: async () => {
-        const activeUserId = safeStorage.getItem('imsc_active_user_id');
-        if (!activeUserId) return { data: { session: null }, error: null };
-        const profiles = getMockData('profiles');
-        const userProfile = profiles.find(p => p.id === activeUserId);
-        if (!userProfile) return { data: { session: null }, error: null };
+        try {
+          const { doc, getDoc } = await import('firebase/firestore');
+          const user = auth.currentUser;
+          if (!user) {
+            return { data: { session: null }, error: null };
+          }
 
-        return {
-          data: {
-            session: {
-              user: { id: userProfile.id, email: userProfile.email, user_metadata: { displayName: userProfile.displayName } },
-              access_token: 'mock-token'
+          let displayName = user.displayName || user.email?.split('@')[0] || '';
+          try {
+            const profileDoc = await getDoc(doc(db, 'profiles', user.uid));
+            if (profileDoc.exists()) {
+              displayName = profileDoc.data().displayName || displayName;
             }
-          },
-          error: null
-        };
+          } catch (e) {
+            // Suppress secondary read error
+          }
+
+          return {
+            data: {
+              session: {
+                user: { id: user.uid, email: user.email, user_metadata: { displayName } },
+                access_token: 'firebase-token'
+              }
+            },
+            error: null
+          };
+        } catch (err: any) {
+          return { data: { session: null }, error: err };
+        }
       },
       onAuthStateChange: (callback: any) => {
         listeners.add(callback);
-        
-        // Initial trigger
-        const activeUserId = safeStorage.getItem('imsc_active_user_id');
-        if (activeUserId) {
-          const profiles = getMockData('profiles');
-          const userProfile = profiles.find(p => p.id === activeUserId);
-          if (userProfile) {
-            const mockUser = {
-              id: userProfile.id,
-              email: userProfile.email,
-              user_metadata: { displayName: userProfile.displayName }
-            };
-            const session = { user: mockUser, access_token: 'mock-token' };
-            setTimeout(() => callback('SIGNED_IN', session), 0);
-          } else {
-            setTimeout(() => callback('SIGNED_OUT', null), 0);
-          }
-        } else {
-          setTimeout(() => callback('SIGNED_OUT', null), 0);
-        }
+        let unsubscribeFirebase: any = null;
 
-        return { 
-          data: { 
-            subscription: { 
-              unsubscribe: () => { 
-                listeners.delete(callback); 
-              } 
-            } 
-          } 
+        // Subscribe to real Firebase auth
+        import('firebase/auth').then(({ onAuthStateChanged }) => {
+          unsubscribeFirebase = onAuthStateChanged(auth, async (user) => {
+            if (user) {
+              let displayName = user.displayName || user.email?.split('@')[0] || '';
+              try {
+                const { doc, getDoc } = await import('firebase/firestore');
+                const profileDoc = await getDoc(doc(db, 'profiles', user.uid));
+                if (profileDoc.exists()) {
+                  displayName = profileDoc.data().displayName || displayName;
+                }
+              } catch (e) {
+                // Suppress profile fetch error
+              }
+
+              const mockUser = {
+                id: user.uid,
+                email: user.email,
+                user_metadata: { displayName }
+              };
+              const session = { user: mockUser, access_token: 'firebase-token' };
+              safeStorage.setItem('imsc_active_user_id', user.uid);
+              callback('SIGNED_IN', session);
+            } else {
+              safeStorage.removeItem('imsc_active_user_id');
+              callback('SIGNED_OUT', null);
+            }
+          });
+        });
+
+        return {
+          data: {
+            subscription: {
+              unsubscribe: () => {
+                listeners.delete(callback);
+                if (unsubscribeFirebase) unsubscribeFirebase();
+              }
+            }
+          }
         };
       }
     },
-    
+
     from: (table: string) => {
-      return {
+      let filters: Array<{ colName: string; op: '==' | '!='; val: any }> = [];
+      let orderField: string | null = null;
+      let orderDirection: 'asc' | 'desc' = 'asc';
+      let limitCount: number | null = null;
+
+      const chain = {
         select: (columns: string = '*') => {
-          let rows = getMockData(table);
-          if (table === 'fees' && rows.length === 0) {
-            rows = [
-              { id: 'fee-1', name: 'Admission & Prospectus Fee', amount: 1000, description: 'Mandatory registration fee for new applicants' }
-            ];
-            saveMockData('fees', rows);
-          }
-          if (table === 'config' && rows.length === 0) {
-            rows = [
-              {
-                id: 'admission_settings',
-                netlifyFormUrl: 'https://formbold.com/s/9mBJY',
-                useExternalForm: false,
-                paystackPublicKey: 'pk_live_322d4bde836a684b28f791049b8c3997742c8985',
-                admissionFeeAmount: 1000,
-                updatedAt: new Date().toISOString()
-              }
-            ];
-            saveMockData('config', rows);
-          }
-          
-          const chain = {
-            eq: (colName: string, val: any) => {
-              rows = rows.filter(r => r[colName] === val);
-              return chain;
-            },
-            neq: (colName: string, val: any) => {
-              rows = rows.filter(r => r[colName] !== val);
-              return chain;
-            },
-            order: (colName: string, { ascending } = { ascending: true }) => {
-              rows = [...rows].sort((a, b) => {
-                if (a[colName] < b[colName]) return ascending ? -1 : 1;
-                if (a[colName] > b[colName]) return ascending ? 1 : -1;
-                return 0;
-              });
-              return chain;
-            },
-            limit: (count: number) => {
-              rows = rows.slice(0, count);
-              return chain;
-            },
-            single: async () => {
-              return { data: rows[0] || null, error: rows.length ? null : { message: 'Row not found' } };
-            },
-            then: (onfulfilled: any) => {
-              return Promise.resolve({ data: rows, error: null }).then(onfulfilled);
-            }
-          };
-
-          // Mimic Promise compatibility
-          (chain as any).then = (onfulfilled: any) => {
-            return Promise.resolve({ data: rows, error: null }).then(onfulfilled);
-          };
-
-          return chain as any;
+          return chain;
         },
-        
-        insert: (input: any) => {
-          let rows = getMockData(table);
-          const payloadArray = Array.isArray(input) ? input : [input];
-          
-          const newRows = payloadArray.map(item => {
-            return {
-              id: item.id || 'rec-' + Math.floor(Math.random() * 10000000),
-              created_at: new Date().toISOString(),
-              ...item
-            };
-          });
-
-          newRows.forEach(newRow => {
-            const index = rows.findIndex(r => r.id === newRow.id);
-            if (index > -1) {
-              rows[index] = { ...rows[index], ...newRow };
-            } else {
-              rows.push(newRow);
-            }
-          });
-
-          saveMockData(table, rows);
-
-          const chain = {
-            select: () => {
-              return {
-                single: async () => ({ data: newRows[0], error: null }),
-                then: (onfulfilled: any) => Promise.resolve({ data: newRows, error: null }).then(onfulfilled)
-              } as any;
-            },
-            then: (onfulfilled: any) => Promise.resolve({ data: newRows, error: null }).then(onfulfilled)
-          };
-
-          return chain as any;
+        eq: (colName: string, val: any) => {
+          filters.push({ colName, op: '==', val });
+          return chain;
         },
-
-        upsert: (input: any) => {
-          let rows = getMockData(table);
-          const payloadArray = Array.isArray(input) ? input : [input];
-          
-          const newRows = payloadArray.map(item => {
-            return {
-              id: item.id || 'rec-' + Math.floor(Math.random() * 10000000),
-              created_at: new Date().toISOString(),
-              ...item
-            };
-          });
-
-          newRows.forEach(newRow => {
-            const index = rows.findIndex(r => r.id === newRow.id);
-            if (index > -1) {
-              rows[index] = { ...rows[index], ...newRow, updated_at: new Date().toISOString() };
-            } else {
-              rows.push(newRow);
-            }
-          });
-
-          saveMockData(table, rows);
-
-          const chain = {
-            select: () => {
-              return {
-                single: async () => ({ data: newRows[0], error: null }),
-                then: (onfulfilled: any) => Promise.resolve({ data: newRows, error: null }).then(onfulfilled)
-              } as any;
-            },
-            then: (onfulfilled: any) => Promise.resolve({ data: newRows, error: null }).then(onfulfilled)
-          };
-
-          return chain as any;
+        neq: (colName: string, val: any) => {
+          filters.push({ colName, op: '!=', val });
+          return chain;
         },
-
-        update: (updates: any) => {
-          let rows = getMockData(table);
-          let targetFilter: { col: string; val: any } | null = null;
-
-          const chain = {
-            eq: (colName: string, val: any) => {
-              targetFilter = { col: colName, val };
-              
-              // Apply update immediately
-              if (targetFilter) {
-                rows = rows.map(r => {
-                  if (r[targetFilter!.col] === targetFilter!.val) {
-                    return { ...r, ...updates, updated_at: new Date().toISOString() };
-                  }
-                  return r;
-                });
-                saveMockData(table, rows);
-              }
-              return chain;
-            },
-            select: () => {
-              const matched = targetFilter ? rows.filter(r => r[targetFilter!.col] === targetFilter!.val) : [];
-              return {
-                single: async () => ({ data: matched[0] || null, error: null }),
-                then: (onfulfilled: any) => Promise.resolve({ data: matched, error: null }).then(onfulfilled)
-              } as any;
-            },
-            then: (onfulfilled: any) => {
-              const matched = targetFilter ? rows.filter(r => r[targetFilter!.col] === targetFilter!.val) : [];
-              return Promise.resolve({ data: matched, error: null }).then(onfulfilled);
-            }
-          };
-
-          return chain as any;
+        order: (colName: string, { ascending } = { ascending: true }) => {
+          orderField = colName;
+          orderDirection = ascending ? 'asc' : 'desc';
+          return chain;
         },
-
-        delete: () => {
-          let rows = getMockData(table);
-          
-          const chain = {
-            eq: (colName: string, val: any) => {
-              const beforeCount = rows.length;
-              rows = rows.filter(r => r[colName] !== val);
-              saveMockData(table, rows);
-              return chain;
-            },
-            then: (onfulfilled: any) => {
-              return Promise.resolve({ data: [], error: null }).then(onfulfilled);
-            }
-          };
-
-          return chain as any;
+        limit: (count: number) => {
+          limitCount = count;
+          return chain;
+        },
+        single: async () => {
+          const res = await getFirebaseData(table, filters, orderField, orderDirection, limitCount);
+          return { data: res[0] || null, error: res.length ? null : { message: 'Row not found' } };
+        },
+        then: (onfulfilled: any) => {
+          return getFirebaseData(table, filters, orderField, orderDirection, limitCount)
+            .then(res => ({ data: res, error: null }))
+            .then(onfulfilled);
         }
       };
+
+      // Set promise-like behavior on chain
+      (chain as any).then = (onfulfilled: any) => {
+        return getFirebaseData(table, filters, orderField, orderDirection, limitCount)
+          .then(res => ({ data: res, error: null }))
+          .then(onfulfilled);
+      };
+
+      return {
+        ...chain,
+        insert: (input: any) => {
+          const payloadArray = Array.isArray(input) ? input : [input];
+          const insertChain = {
+            select: () => {
+              return {
+                single: async () => {
+                  const res = await saveFirebaseData(table, payloadArray);
+                  return { data: res[0], error: null };
+                },
+                then: (onfulfilled: any) => {
+                  return saveFirebaseData(table, payloadArray)
+                    .then(res => ({ data: res, error: null }))
+                    .then(onfulfilled);
+                }
+              };
+            },
+            then: (onfulfilled: any) => {
+              return saveFirebaseData(table, payloadArray)
+                .then(res => ({ data: res, error: null }))
+                .then(onfulfilled);
+            }
+          };
+          return insertChain as any;
+        },
+        upsert: (input: any) => {
+          const payloadArray = Array.isArray(input) ? input : [input];
+          const upsertChain = {
+            select: () => {
+              return {
+                single: async () => {
+                  const res = await saveFirebaseData(table, payloadArray);
+                  return { data: res[0], error: null };
+                },
+                then: (onfulfilled: any) => {
+                  return saveFirebaseData(table, payloadArray)
+                    .then(res => ({ data: res, error: null }))
+                    .then(onfulfilled);
+                }
+              };
+            },
+            then: (onfulfilled: any) => {
+              return saveFirebaseData(table, payloadArray)
+                .then(res => ({ data: res, error: null }))
+                .then(onfulfilled);
+            }
+          };
+          return upsertChain as any;
+        },
+        update: (updates: any) => {
+          const updateChain = {
+            eq: (colName: string, val: any) => {
+              filters.push({ colName, op: '==', val });
+              return updateChain;
+            },
+            then: (onfulfilled: any) => {
+              return updateFirebaseData(table, filters, updates)
+                .then(res => ({ data: res, error: null }))
+                .then(onfulfilled);
+            }
+          };
+          return updateChain as any;
+        },
+        delete: () => {
+          const deleteChain = {
+            eq: (colName: string, val: any) => {
+              filters.push({ colName, op: '==', val });
+              return deleteChain;
+            },
+            then: (onfulfilled: any) => {
+              return deleteFirebaseData(table, filters)
+                .then(res => ({ data: [], error: res.error }))
+                .then(onfulfilled);
+            }
+          };
+          return deleteChain as any;
+        }
+      } as any;
     },
 
     storage: {
@@ -498,13 +667,10 @@ const generateMockSupabaseClient = () => {
         return {
           upload: async (filePath: string, file: any, options?: any) => {
             console.log(`[Mock Supabase Storage] Uploading file to bucket "${bucket}" at: "${filePath}"`);
-            
-            // Create a pseudo base64 or URL
             const url = URL.createObjectURL(file instanceof Blob ? file : new Blob([file]));
             return { data: { path: filePath, url }, error: null };
           },
           getPublicUrl: (filePath: string) => {
-            // Check if it's already an active object URL
             return { data: { publicUrl: `https://pwhmpxqszgixvdwjqusn.supabase.co/storage/v1/object/public/${bucket}/${filePath}` } };
           }
         };
@@ -514,11 +680,142 @@ const generateMockSupabaseClient = () => {
     rpc: async (functionName: string, args?: any) => {
       console.log(`[Mock Supabase RPC] Executing RPC: ${functionName}`, args);
       return { data: { success: true }, error: null };
+    },
+
+    channel: (channelName: string) => {
+      console.log(`[Mock Supabase Channel] Subscribing to: ${channelName}`);
+      const dummyChannel = {
+        on: (event: string, filter: any, callback: any) => {
+          return dummyChannel;
+        },
+        subscribe: () => {
+          return dummyChannel;
+        },
+        unsubscribe: async () => {
+          return { error: null };
+        }
+      };
+      return dummyChannel;
+    },
+
+    removeChannel: async (channel: any) => {
+      return { error: null };
     }
   };
 };
 
-// Export actual or gracefully mocked client
-export const supabase = isSupabaseConfigured 
+// Auto-healing state tracker
+let useMock = !isSupabaseConfigured;
+
+// Helper to switch to mock mode dynamically and save state
+const forceFallbackToMock = (reason: string) => {
+  if (!useMock) {
+    console.warn(`[Supabase Auto-Healer] Connection issue detected: ${reason}. Dynamically routing database queries to the Offline Mock Sandbox to prevent application crash.`);
+    try {
+      safeStorage.setItem('imsc_force_mock_supabase', 'true');
+    } catch (e) {
+      // safeStorage write error
+    }
+    useMock = true;
+    try {
+      window.dispatchEvent(new CustomEvent('supabase-failover', { detail: { reason } }));
+    } catch (e) {}
+  }
+};
+
+function makeSelfHealingClient(actual: any, mock: any): any {
+  const handler = {
+    get(target: any, prop: string, receiver: any): any {
+      // If we are currently in mock mode, route directly to mock
+      if (useMock) {
+        return Reflect.get(mock, prop, mock);
+      }
+
+      // Otherwise, try to read the property from the actual client
+      let value;
+      try {
+        value = Reflect.get(actual, prop, actual);
+      } catch (err) {
+        forceFallbackToMock(err instanceof Error ? err.message : String(err));
+        return Reflect.get(mock, prop, mock);
+      }
+
+      // If the property is a function, wrap it to catch promise rejections and thrown errors
+      if (typeof value === 'function') {
+        return function(this: any, ...args: any[]) {
+          try {
+            const result = value.apply(this === receiver ? actual : this, args);
+            
+            // If it's a promise, catch rejection
+            if (result instanceof Promise) {
+              return result.then(
+                (resolved) => {
+                  if (resolved && resolved.error) {
+                    const errMsg = String(resolved.error.message || resolved.error);
+                    if (
+                      errMsg.includes('fetch') || 
+                      errMsg.includes('Network') || 
+                      errMsg.includes('failed') || 
+                      errMsg.includes('connection') ||
+                      errMsg.includes('TypeError')
+                    ) {
+                      forceFallbackToMock(errMsg);
+                      // Fallback and run on the mock client instead
+                      const mockFunc = Reflect.get(mock, prop, mock);
+                      if (typeof mockFunc === 'function') {
+                        return mockFunc.apply(mock, args);
+                      }
+                    }
+                  }
+                  return resolved;
+                },
+                (rejectedErr) => {
+                  const errMsg = String(rejectedErr?.message || rejectedErr);
+                  forceFallbackToMock(errMsg);
+                  const mockFunc = Reflect.get(mock, prop, mock);
+                  if (typeof mockFunc === 'function') {
+                    return mockFunc.apply(mock, args);
+                  }
+                  throw rejectedErr;
+                }
+              );
+            }
+            
+            // If it returns a chainable object, wrap that chain as well
+            if (result && typeof result === 'object') {
+              const mockChain = Reflect.get(mock, prop, mock)?.apply(mock, args) || result;
+              return makeSelfHealingClient(result, mockChain);
+            }
+
+            return result;
+          } catch (syncErr) {
+            const errMsg = String(syncErr instanceof Error ? syncErr.message : syncErr);
+            forceFallbackToMock(errMsg);
+            const mockFunc = Reflect.get(mock, prop, mock);
+            if (typeof mockFunc === 'function') {
+              return mockFunc.apply(mock, args);
+            }
+            throw syncErr;
+          }
+        };
+      }
+
+      // If the property is an object (like auth, storage), wrap recursively
+      if (value && typeof value === 'object') {
+        return makeSelfHealingClient(value, Reflect.get(mock, prop, mock) || value);
+      }
+
+      return value;
+    }
+  };
+
+  return new Proxy(actual || mock, handler);
+}
+
+const rawActualClient = isSupabaseConfigured 
   ? createClient(supabaseUrl, supabaseAnonKey) 
-  : (generateMockSupabaseClient() as any);
+  : null;
+const mockClient = generateMockSupabaseClient() as any;
+
+// Export actual or gracefully mocked client with self-healing capabilities
+export const supabase = makeSelfHealingClient(rawActualClient, mockClient);
