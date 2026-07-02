@@ -343,7 +343,6 @@ function StudentOverview({ application }: { application: any }) {
                     </div>
                     <div>
                       <h1 className="text-2xl font-serif font-black text-emerald-950 tracking-tight leading-none uppercase">Imam Malik Science & Tahfiz College</h1>
-                      <p className="text-xs text-amber-600 font-extrabold uppercase tracking-widest mt-1">Admissions & Academic Records Bureau</p>
                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Karefa Road Tudun Wada Dankadai, Kano State | Tel: 07011748311</p>
                     </div>
                   </div>
