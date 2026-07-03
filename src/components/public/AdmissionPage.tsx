@@ -285,15 +285,7 @@ export default function AdmissionPage() {
     setIsSubmitting(true);
     
     try {
-      setPaymentStatusMessage("Connecting to Paystack secure verification network...");
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      setPaymentStatusMessage(`Validating payment reference: ${reference}...`);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      setPaymentStatusMessage("Payment confirmed! Synchronizing transaction log with secure database...");
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
+      setPaymentStatusMessage("Verifying payment transaction...");
       const receiptNo = `ADM-${generateId().toUpperCase().slice(0, 6)}`;
 
       // 1. Try to record/query in Supabase, but never let DB latency or errors block the applicant's progress
@@ -353,9 +345,6 @@ export default function AdmissionPage() {
         console.warn("Supabase save of payment reference skipped or failed. This is normal in sandbox/local run. Defaulting to local memory fallback mode:", dbErr);
       }
 
-      setPaymentStatusMessage("Updating applicant status and credentials...");
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
       // 2. Commit to localStorage to persist state across page reloads/refreshes instantly
       if (user?.uid) {
         localStorage.setItem(`imsc_paid_uid_${user.uid}`, 'true');
@@ -378,9 +367,6 @@ export default function AdmissionPage() {
       } catch (fbErr) {
         console.warn("FormBold auto-submission from callback draft skipped/failed", fbErr);
       }
-
-      setPaymentStatusMessage("Finalizing secure session. Unlocking admission form...");
-      await new Promise(resolve => setTimeout(resolve, 1200));
 
       setHasPaid(true);
       setStep(3);
