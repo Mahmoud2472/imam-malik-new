@@ -288,70 +288,13 @@ export default function AdmissionPage() {
       setPaymentStatusMessage("Verifying payment transaction...");
       const receiptNo = `ADM-${generateId().toUpperCase().slice(0, 6)}`;
 
-      // 1. Try to record/query in Supabase, but never let DB latency or errors block the applicant's progress
-      try {
-        const { data: qCheck } = await supabase
-          .from('payments')
-          .select('*')
-          .eq('paystackReference', reference)
-          .limit(1);
-        
-        if (!qCheck || qCheck.length === 0) {
-          // Record the new payment reference
-          await supabase.from('payments').insert({
-            studentId: user?.uid || "guest-or-anon",
-            amount: admissionFee.amount,
-            type: "Admission Fee",
-            receiptNumber: receiptNo,
-            status: 'verified', // We trust the Paystack redirect link for this setup
-            paystackReference: reference,
-            verificationMethod: silent ? 'url_redirect' : 'manual_entry'
-          });
-
-          // Also record in Firebase/Firestore for unified admin dashboard metrics
-          try {
-            await addDoc(collection(db, "payments"), {
-              studentId: user?.uid || "guest-or-anon",
-              amount: admissionFee.amount,
-              type: "Admission Fee",
-              receiptNumber: receiptNo,
-              status: 'verified',
-              paymentDate: new Date().toISOString(),
-              paystackReference: reference,
-              verificationMethod: silent ? 'url_redirect' : 'manual_entry'
-            });
-            console.log("Firebase payment save completed successfully!");
-
-            // Create automated dashboard notification for admins
-            try {
-              await addDoc(collection(db, "notifications"), {
-                userId: 'admin', // target role
-                applicantEmail: user?.email || 'guest@school.com',
-                title: "New Admission Payment: Verified! 💳",
-                message: `An admission payment of ₦${admissionFee.amount.toLocaleString()} has been completed successfully by ${user?.displayName || 'an applicant'} (Email: ${user?.email || 'N/A'}) with reference ${reference}.`,
-                type: "admission_payment",
-                status: "unread",
-                createdAt: new Date().toISOString()
-              });
-              console.log("Admin payment notification created successfully!");
-            } catch (notifErr) {
-              console.warn("Could not create admin notification for payment:", notifErr);
-            }
-          } catch (firePayErr) {
-            console.warn("Firebase payment save skipped or failed:", firePayErr);
-          }
-        }
-      } catch (dbErr) {
-        console.warn("Supabase save of payment reference skipped or failed. This is normal in sandbox/local run. Defaulting to local memory fallback mode:", dbErr);
-      }
-
-      // 2. Commit to localStorage to persist state across page reloads/refreshes instantly
+      // --- INSTANT ACTION: Save locally & proceed to Step 3 immediately ---
       if (user?.uid) {
         localStorage.setItem(`imsc_paid_uid_${user.uid}`, 'true');
       }
       localStorage.setItem(`imsc_payment_ref_${user?.uid || 'anon'}`, reference);
 
-      // 3. Attempt FormBold auto-submission from cached fields/draft details if available
+      // Attempt FormBold auto-submission from cached fields/draft details if available
       try {
         const currentHookValues = getValues();
         let studentData: FormData = { ...currentHookValues };
@@ -374,6 +317,69 @@ export default function AdmissionPage() {
       if (!silent) {
         alert("Payment verified successfully! You can now proceed to fill the admission form.");
       }
+
+      // --- BACKGROUND ACTION: Handle database recording asynchronously without blocking the user ---
+      (async () => {
+        try {
+          // 1. Record in Supabase
+          try {
+            const { data: qCheck } = await supabase
+              .from('payments')
+              .select('*')
+              .eq('paystackReference', reference)
+              .limit(1);
+            
+            if (!qCheck || qCheck.length === 0) {
+              await supabase.from('payments').insert({
+                studentId: user?.uid || "guest-or-anon",
+                amount: admissionFee.amount,
+                type: "Admission Fee",
+                receiptNumber: receiptNo,
+                status: 'verified', // We trust the Paystack redirect link for this setup
+                paystackReference: reference,
+                verificationMethod: silent ? 'url_redirect' : 'manual_entry'
+              });
+            }
+          } catch (dbErr) {
+            console.warn("Background Supabase payment save skipped/failed:", dbErr);
+          }
+
+          // 2. Record in Firebase/Firestore
+          try {
+            await addDoc(collection(db, "payments"), {
+              studentId: user?.uid || "guest-or-anon",
+              amount: admissionFee.amount,
+              type: "Admission Fee",
+              receiptNumber: receiptNo,
+              status: 'verified',
+              paymentDate: new Date().toISOString(),
+              paystackReference: reference,
+              verificationMethod: silent ? 'url_redirect' : 'manual_entry'
+            });
+
+            // Create automated dashboard notification for admins
+            try {
+              await addDoc(collection(db, "notifications"), {
+                userId: 'admin', // target role
+                applicantEmail: user?.email || 'guest@school.com',
+                title: "New Admission Payment: Verified! 💳",
+                message: `An admission payment of ₦${admissionFee.amount.toLocaleString()} has been completed successfully by ${user?.displayName || 'an applicant'} (Email: ${user?.email || 'N/A'}) with reference ${reference}.`,
+                type: "admission_payment",
+                status: "unread",
+                createdAt: new Date().toISOString()
+              });
+              console.log("Admin payment notification created successfully in background!");
+            } catch (notifErr) {
+              console.warn("Could not create admin notification for payment:", notifErr);
+            }
+          } catch (firePayErr) {
+            console.warn("Background Firebase payment save skipped/failed:", firePayErr);
+          }
+        } catch (bgErr) {
+          console.warn("Background billing logic failed:", bgErr);
+        }
+      })();
+
       return true;
     } catch (err) {
       console.error("Verification Error:", err);
