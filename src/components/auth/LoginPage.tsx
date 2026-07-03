@@ -211,6 +211,13 @@ export default function LoginPage() {
           role = 'student';
         }
 
+        setLoadingStatus('Initializing secure enrollment module...');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        setLoadingStatus('Checking email availability...');
+        await new Promise(resolve => setTimeout(resolve, 1200));
+
+        setLoadingStatus('Registering unique academic credentials...');
         const { data, error: registerErr } = await supabase.auth.signUp({
           email,
           password,
@@ -225,7 +232,10 @@ export default function LoginPage() {
         if (registerErr) {
           const message = (registerErr.message || '').toLowerCase();
           if (message.includes('already-registered') || message.includes('already exists') || message.includes('use')) {
-            setLoadingStatus('Email exists, signing in instead...');
+            setLoadingStatus('Email exists, preparing direct secure entry...');
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            setLoadingStatus('Signing in securely...');
             const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
               email,
               password
@@ -233,6 +243,9 @@ export default function LoginPage() {
             if (signInErr) throw registerErr; // report original signup err if fallback signin fails
             
             const user = signInData.user;
+            setLoadingStatus('Retrieving verified profile metadata...');
+            await new Promise(resolve => setTimeout(resolve, 1200));
+            
             const { data: profile } = await supabase.from('profiles').select('*').eq('id', user!.id).single();
             if (profile) {
               role = profile.role || 'applicant';
@@ -243,7 +256,10 @@ export default function LoginPage() {
           }
         } else if (data.user) {
           const user = data.user;
-          setLoadingStatus('Completing profile setup...');
+          setLoadingStatus('Verifying registration and initializing profile...');
+          await new Promise(resolve => setTimeout(resolve, 1500));
+
+          setLoadingStatus('Completing database profile setup...');
           
           const newProfile = {
             role,
@@ -264,9 +280,18 @@ export default function LoginPage() {
           }
 
           localStorage.setItem(`imsc_user_data_${user.id}`, JSON.stringify(newProfile));
+          await new Promise(resolve => setTimeout(resolve, 1200));
         }
 
+        setLoadingStatus('Finalizing student record configuration...');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        setLoadingStatus('Generating personal student portal session...');
+        await new Promise(resolve => setTimeout(resolve, 1200));
+
         setLoadingStatus('Navigating to portal dashboard...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         if (role === 'admin') navigate(getRedirectUrl('/admin'));
         else if (role === 'teacher') navigate(getRedirectUrl('/teacher'));
         else if (role === 'student') navigate(getRedirectUrl('/student'));

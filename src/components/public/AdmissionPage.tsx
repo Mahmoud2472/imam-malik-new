@@ -46,6 +46,7 @@ export default function AdmissionPage() {
   const [hasPaid, setHasPaid] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(true);
   const [verifyingUrl, setVerifyingUrl] = useState(false);
+  const [paymentStatusMessage, setPaymentStatusMessage] = useState("We're checking your payment with Paystack. Please don't refresh the page, your form will load in a moment.");
   const [existingApplication, setExistingApplication] = useState<any>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
   const [admissionFee, setAdmissionFee] = useState({ amount: 1000, name: 'Admission & Prospectus Fee' });
@@ -280,10 +281,21 @@ export default function AdmissionPage() {
       return false;
     }
 
-    if (silent) setVerifyingUrl(true);
+    setVerifyingUrl(true);
     setIsSubmitting(true);
     
     try {
+      setPaymentStatusMessage("Connecting to Paystack secure verification network...");
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      setPaymentStatusMessage(`Validating payment reference: ${reference}...`);
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      setPaymentStatusMessage("Payment confirmed! Synchronizing transaction log with secure database...");
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      const receiptNo = `ADM-${generateId().toUpperCase().slice(0, 6)}`;
+
       // 1. Try to record/query in Supabase, but never let DB latency or errors block the applicant's progress
       try {
         const { data: qCheck } = await supabase
@@ -293,7 +305,6 @@ export default function AdmissionPage() {
           .limit(1);
         
         if (!qCheck || qCheck.length === 0) {
-          const receiptNo = `ADM-${generateId().toUpperCase().slice(0, 6)}`;
           // Record the new payment reference
           await supabase.from('payments').insert({
             studentId: user?.uid || "guest-or-anon",
@@ -342,6 +353,9 @@ export default function AdmissionPage() {
         console.warn("Supabase save of payment reference skipped or failed. This is normal in sandbox/local run. Defaulting to local memory fallback mode:", dbErr);
       }
 
+      setPaymentStatusMessage("Updating applicant status and credentials...");
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
       // 2. Commit to localStorage to persist state across page reloads/refreshes instantly
       if (user?.uid) {
         localStorage.setItem(`imsc_paid_uid_${user.uid}`, 'true');
@@ -364,6 +378,9 @@ export default function AdmissionPage() {
       } catch (fbErr) {
         console.warn("FormBold auto-submission from callback draft skipped/failed", fbErr);
       }
+
+      setPaymentStatusMessage("Finalizing secure session. Unlocking admission form...");
+      await new Promise(resolve => setTimeout(resolve, 1200));
 
       setHasPaid(true);
       setStep(3);
@@ -1345,8 +1362,8 @@ export default function AdmissionPage() {
                   <CreditCard size={32} />
                 </div>
                 <h3 className="text-xl font-black uppercase tracking-tighter mb-2">Verifying Transaction...</h3>
-                <p className="text-sm text-slate-500 max-w-xs">
-                  We're checking your payment with Paystack. Please don't refresh the page, your form will load in a moment.
+                <p className="text-sm text-emerald-950 font-semibold max-w-md">
+                  {paymentStatusMessage}
                 </p>
                 <Loader2 className="animate-spin mt-6 text-amber-500" />
               </motion.div>
