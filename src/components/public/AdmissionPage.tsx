@@ -623,18 +623,19 @@ export default function AdmissionPage() {
         }
       } catch (e) {}
 
-      // If we have local state, load the form or success page instantly!
-      if (localApp) {
-        setExistingApplication(localApp);
-        setHasPaid(true);
-        setStep(4);
+      // If we have a paymentRef or already paid locally, we don't want a blocking full-page "Checking Admission Status..." loader.
+      // We want to load the page content and show the verifying overlay if a transaction is being checked.
+      if (paymentRef || localPaid || localApp) {
         setIsLoadingStatus(false);
         setCheckingPayment(false);
-      } else if (localPaid) {
-        setHasPaid(true);
-        setStep(3);
-        setIsLoadingStatus(false);
-        setCheckingPayment(false);
+        if (localApp) {
+          setExistingApplication(localApp);
+          setHasPaid(true);
+          setStep(4);
+        } else if (localPaid) {
+          setHasPaid(true);
+          setStep(3);
+        }
       } else {
         setIsLoadingStatus(true);
       }
