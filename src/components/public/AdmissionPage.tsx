@@ -46,6 +46,7 @@ export default function AdmissionPage() {
   const [hasPaid, setHasPaid] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(true);
   const [verifyingUrl, setVerifyingUrl] = useState(false);
+  const verifiedRefs = React.useRef<Set<string>>(new Set());
   const [paymentStatusMessage, setPaymentStatusMessage] = useState("We're checking your payment with Paystack. Please don't refresh the page, your form will load in a moment.");
   const [existingApplication, setExistingApplication] = useState<any>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
@@ -280,6 +281,11 @@ export default function AdmissionPage() {
       if (!silent) alert("Please enter a valid Transaction Reference.");
       return false;
     }
+
+    if (verifiedRefs.current.has(reference)) {
+      return true;
+    }
+    verifiedRefs.current.add(reference);
 
     setVerifyingUrl(true);
     setIsSubmitting(true);
@@ -606,20 +612,50 @@ export default function AdmissionPage() {
 
     // 4. Check for successful payment and application status
     const checkStatus = async () => {
-      setIsLoadingStatus(true);
+      // Check local cache first for instant load!
+      const localPaid = user?.uid ? localStorage.getItem(`imsc_paid_uid_${user.uid}`) === 'true' : false;
+      const localAppKey = user?.uid ? `imsc_submitted_app_${user.uid}` : 'imsc_submitted_app_guest';
+      let localApp = null;
+      try {
+        const raw = localStorage.getItem(localAppKey);
+        if (raw) {
+          localApp = JSON.parse(raw);
+        }
+      } catch (e) {}
+
+      // If we have local state, load the form or success page instantly!
+      if (localApp) {
+        setExistingApplication(localApp);
+        setHasPaid(true);
+        setStep(4);
+        setIsLoadingStatus(false);
+        setCheckingPayment(false);
+      } else if (localPaid) {
+        setHasPaid(true);
+        setStep(3);
+        setIsLoadingStatus(false);
+        setCheckingPayment(false);
+      } else {
+        setIsLoadingStatus(true);
+      }
+
       try {
         // 1. First, handle returning from Paystack redirect
         const ref = paymentRef;
         let verifiedJustNow = false;
         if (ref && !hasPaid) {
-          verifiedJustNow = await verifyManualPayment(ref, true);
-          // Clear URL to prevent re-runs using React Router replace
-          navigate('/admission', { replace: true });
+          if (verifiedRefs.current.has(ref)) {
+            navigate('/admission', { replace: true });
+          } else {
+            verifiedRefs.current.add(ref);
+            verifiedJustNow = await verifyManualPayment(ref, true);
+            navigate('/admission', { replace: true });
+          }
         }
 
         // 2. Check Database for existing payment records for this user (with try-catch safety)
         let foundPayment = false;
-        if (user?.uid) {
+        if (user?.uid && !localPaid && !verifiedJustNow) {
           try {
             const { data: payments } = await supabase
               .from('payments')
@@ -646,7 +682,7 @@ export default function AdmissionPage() {
           }
         }
 
-        const isPaid = verifiedJustNow || foundPayment || (user?.uid ? localStorage.getItem(`imsc_paid_uid_${user.uid}`) === 'true' : false);
+        const isPaid = verifiedJustNow || foundPayment || localPaid;
 
         // 3. Check for existing application (Supabase check with try-catch fallback)
         let foundApp: any = null;
@@ -679,18 +715,6 @@ export default function AdmissionPage() {
           }
         }
 
-        // Check localStorage as robust fallback
-        let offlineApp = null;
-        const storageKey = user?.uid ? `imsc_submitted_app_${user.uid}` : 'imsc_submitted_app_guest';
-        try {
-          const localRaw = safeStorage.getItem(storageKey);
-          if (localRaw) {
-            offlineApp = JSON.parse(localRaw);
-          }
-        } catch (storageErr) {
-          console.warn("Could not parse local backup application:", storageErr);
-        }
-        
         // Determine the correct step
         if (!user) {
           setStep(1);
@@ -702,6 +726,11 @@ export default function AdmissionPage() {
             setExistingApplication({ id: foundApp.id, ...appData });
             setStep(4);
             setHasPaid(true); // Implied if they have an application
+            
+            // Sync to local storage
+            try {
+              localStorage.setItem(`imsc_submitted_app_${user.uid}`, JSON.stringify({ id: foundApp.id, ...appData }));
+            } catch (e) {}
           } else if (isPaid) {
             setHasPaid(true);
             setStep(3);
@@ -709,9 +738,9 @@ export default function AdmissionPage() {
             setHasPaid(false);
             setStep(2);
           }
-        } else if (offlineApp) {
-          console.log("Restored saved application profile from local recovery:", offlineApp);
-          setExistingApplication(offlineApp);
+        } else if (localApp) {
+          console.log("Restored saved application profile from local recovery:", localApp);
+          setExistingApplication(localApp);
           setStep(4);
           setHasPaid(true);
         } else if (isPaid) {
