@@ -258,7 +258,7 @@ function TeacherOverview({ stats }: { stats: any }) {
 function TeacherResultEntry() {
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedSubject, setSelectedSubject] = useState('');
-  const [session, setSession] = useState('2025/2026');
+  const [session, setSession] = useState('2026/2027');
   const [term, setTerm] = useState('1st Term');
   
   const [classes, setClasses] = useState<any[]>([]);
@@ -629,7 +629,7 @@ function TeacherSubjects() {
           <h3 className="text-xl font-bold mb-1 tracking-tight">{sub.name}</h3>
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-emerald-300">Code: {sub.code || 'N/A'}</p>
           <div className="mt-8 pt-6 border-t border-slate-100 group-hover:border-emerald-900 flex justify-between items-center">
-             <span className="text-xs font-bold opacity-60">Session: 2025/2026</span>
+             <span className="text-xs font-bold opacity-60">Session: 2026/2027</span>
              <ChevronRight className="text-amber-500 group-hover:translate-x-2 transition-transform" />
           </div>
         </div>

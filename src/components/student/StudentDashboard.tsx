@@ -286,7 +286,7 @@ function StudentOverview({ application }: { application: any }) {
     
     doc.text(`Dear ${displayApplication.firstName} ${displayApplication.lastName},`, 20, 105);
     
-    const body = `We are pleased to inform you that your application for admission into Imam Malik Science & Tahfiz College has been reviewed and APPROVED. You have been offered provisional admission for the 2025/2026 Academic Session.`;
+    const body = `We are pleased to inform you that your application for admission into Imam Malik Science & Tahfiz College has been reviewed and APPROVED. You have been offered provisional admission for the 2026/2027 Academic Session.`;
     
     const splitBody = doc.splitTextToSize(body, 170);
     doc.text(splitBody, 20, 115);
@@ -295,7 +295,7 @@ function StudentOverview({ application }: { application: any }) {
     doc.text('Admission Details:', 20, 140);
     doc.setFont('helvetica', 'normal');
     doc.text(`Class: ${(displayApplication.targetClassId || '').toUpperCase()}`, 30, 150);
-    doc.text(`Session: 2025/2026`, 30, 158);
+    doc.text(`Session: 2026/2027`, 30, 158);
     
     const instructions = `You are required to proceed to the school premises for physical verification and registration within two weeks of this offer. Please bring along original copies of your credentials and two passport photographs.`;
     const splitInstructions = doc.splitTextToSize(instructions, 170);
@@ -725,7 +725,7 @@ function StudentResults() {
   const [results, setResults] = useState<any[]>([]);
   const [subjects, setSubjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState('2025/2026');
+  const [session, setSession] = useState('2026/2027');
   const [term, setTerm] = useState('1st Term');
   const [ranking, setRanking] = useState<{ position: number; totalStudents: number; average: number; totalScore: number } | null>(null);
 
@@ -1044,7 +1044,7 @@ function StudentFees() {
            <div>
              <h4 className="text-emerald-300 text-xs font-bold uppercase tracking-widest mb-4">Next Payment Due</h4>
              <div className="text-4xl font-bold mb-2">₦12,000.00</div>
-             <p className="text-sm opacity-60">2nd Term Tuition Fee (2025/2026)</p>
+             <p className="text-sm opacity-60">2nd Term Tuition Fee (2026/2027)</p>
            </div>
            <button 
              onClick={() => window.open('https://paystack.shop/pay/njvkcjper', '_blank')}

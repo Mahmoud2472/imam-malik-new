@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, addDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-import { CheckCircle, XCircle, Search, Filter, Loader2, Trash2, Eye, X } from 'lucide-react';
+import { CheckCircle, XCircle, Search, Filter, Loader2, Trash2, Eye, X, Mail, Sparkles } from 'lucide-react';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { sendAdmissionApprovedEmail } from '../../lib/emailService';
 
 export default function AdminApplications() {
   const [apps, setApps] = useState<any[]>([]);
@@ -15,6 +16,13 @@ export default function AdminApplications() {
   const [transactionId, setTransactionId] = useState('');
   const [paymentStatus, setPaymentStatus] = useState('');
   const [updatingPayment, setUpdatingPayment] = useState(false);
+  const [emailNotificationStatus, setEmailNotificationStatus] = useState<{
+    show: boolean;
+    to: string;
+    recipient: string;
+    message: string;
+    isSimulated: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (selectedApp) {
@@ -184,11 +192,14 @@ export default function AdminApplications() {
         }
 
         // 4. Store Dashboard Notification for the applicant
+        const approvalTitle = "Admission Status: Approved! 🎉";
+        const approvalMsg = `Congratulations ${app.firstName}! Your admission application for class ${getClassName(app.targetClassId)} has been approved. You are now promoted and can view your full student records.`;
+
         await addDoc(collection(db, "notifications"), {
           userId: app.userId || 'guest',
           applicantEmail: app.email,
-          title: "Admission Status: Approved! 🎉",
-          message: `Congratulations ${app.firstName}! Your admission application for class ${getClassName(app.targetClassId)} has been approved. You are now promoted and can view your full student records.`,
+          title: approvalTitle,
+          message: approvalMsg,
           type: "admission_status",
           status: "unread",
           createdAt: new Date().toISOString()
@@ -198,8 +209,8 @@ export default function AdminApplications() {
           await supabase.from('notifications').insert({
             userId: app.userId || 'guest',
             applicantEmail: app.email,
-            title: "Admission Status: Approved! 🎉",
-            message: `Congratulations ${app.firstName}! Your admission application for class ${getClassName(app.targetClassId)} has been approved. You are now promoted and can view your full student records.`,
+            title: approvalTitle,
+            message: approvalMsg,
             type: "admission_status",
             status: "unread",
             createdAt: new Date().toISOString()
@@ -208,17 +219,54 @@ export default function AdminApplications() {
           console.warn("Supabase approval notification error:", supNotifErr);
         }
 
-        // 5. Store Automated Outgoing Email Trigger Log
+        // 5. Trigger automated email via EmailJS (or simulation if keys aren't configured yet)
+        const emailSubject = "Imam Malik Science & Tahfiz College - Admission Approved! 🎉";
+        const emailBody = `Dear ${app.firstName} ${app.lastName},\n\nCongratulations!\n\nWe are extremely pleased to inform you that your application for admission to Imam Malik Science & Tahfiz College has been APPROVED for class: ${getClassName(app.targetClassId)}.\n\nYour assigned Student Admission Number is: ${generatedStudentId}\n\nYou can now log back into the portal using your registered credentials to print your official Admission Letter and view details.\n\nBest regards,\nAdmission Office\nImam Malik Science & Tahfiz College`;
+
+        const emailResult = await sendAdmissionApprovedEmail({
+          toEmail: app.email,
+          toName: `${app.firstName} ${app.lastName}`,
+          className: getClassName(app.targetClassId),
+          studentId: generatedStudentId,
+          subject: emailSubject,
+          body: emailBody
+        });
+
+        // 6. Store Automated Outgoing Email Trigger Log
         await addDoc(collection(db, "email_logs"), {
           userId: app.userId || 'guest',
           to: app.email,
-          subject: "Imam Malik Science & Tahfiz College - Admission Approved! 🎉",
-          body: `Dear ${app.firstName} ${app.lastName},\n\nCongratulations!\n\nWe are extremely pleased to inform you that your application for admission to Imam Malik Science & Tahfiz College has been APPROVED for class: ${getClassName(app.targetClassId)}.\n\nYou have been promoted to the Student role in our system. You can now log back into the portal at https://imsc.edu/auth using your registered student credentials.\n\nBest regards,\nAdmission Office\nImam Malik Science & Tahfiz College`,
+          subject: emailSubject,
+          body: emailBody,
           sentAt: new Date().toISOString(),
-          status: "delivered"
+          status: emailResult.isSimulated ? "simulated" : "delivered",
+          success: emailResult.success,
+          message: emailResult.message
         });
-        
-        alert("Application Approved! Realtime notification sent, student profile provisioned, and automated email logged.");
+
+        try {
+          await supabase.from('email_logs').insert({
+            userId: app.userId || 'guest',
+            to: app.email,
+            subject: emailSubject,
+            body: emailBody,
+            sentAt: new Date().toISOString(),
+            status: emailResult.isSimulated ? "simulated" : "delivered",
+            success: emailResult.success
+          });
+        } catch (supEmailErr) {
+          console.warn("Supabase email log error:", supEmailErr);
+        }
+
+        // 7. Show success confirmation toast/panel
+        setEmailNotificationStatus({
+          show: true,
+          to: app.email,
+          recipient: `${app.firstName} ${app.lastName}`,
+          message: emailResult.message,
+          isSimulated: emailResult.isSimulated
+        });
+
       } catch (error) {
         console.error("Approval error:", error);
         alert("Failed to approve application.");
@@ -556,6 +604,52 @@ export default function AdminApplications() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Email Dispatch Notification Toast */}
+      <AnimatePresence>
+        {emailNotificationStatus && emailNotificationStatus.show && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.95 }}
+            className="fixed bottom-6 right-6 z-[200] max-w-md bg-slate-950 border border-emerald-500/30 text-white rounded-3xl p-6 shadow-2xl backdrop-blur-md"
+          >
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-emerald-500/10 rounded-2xl text-emerald-400 border border-emerald-500/20 shrink-0 animate-pulse">
+                <Mail size={24} />
+              </div>
+              <div className="flex-1 space-y-1">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-extrabold text-xs uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-amber-400" /> Email Notification Sent
+                  </h4>
+                  <button 
+                    onClick={() => setEmailNotificationStatus(null)}
+                    className="text-slate-400 hover:text-white transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <p className="text-xs text-slate-300 font-medium">
+                  An official admission notification was prepared and dispatched to:
+                </p>
+                <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800 space-y-0.5 my-2">
+                  <p className="text-xs text-emerald-300 font-bold">{emailNotificationStatus.recipient}</p>
+                  <p className="text-[10px] text-slate-400 font-mono select-all">{emailNotificationStatus.to}</p>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed bg-emerald-500/5 p-2 rounded-lg border border-emerald-500/10">
+                  {emailNotificationStatus.message}
+                </p>
+                {emailNotificationStatus.isSimulated && (
+                  <p className="text-[9px] text-amber-400/80 font-semibold italic mt-2">
+                    ⚡ Note: Simulated logs have also been committed to the Firestore database email logs.
+                  </p>
+                )}
+              </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

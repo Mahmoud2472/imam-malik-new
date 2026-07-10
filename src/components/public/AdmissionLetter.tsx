@@ -41,7 +41,7 @@ export default function AdmissionLetter({ application }: AdmissionLetterProps) {
     
     doc.text(`Dear ${application.firstName} ${application.lastName},`, 20, 105);
     
-    const body = `We are pleased to inform you that your application for admission into Imam Malik Science & Tahfiz College has been reviewed and APPROVED. You have been offered provisional admission for the 2025/2026 Academic Session.`;
+    const body = `We are pleased to inform you that your application for admission into Imam Malik Science & Tahfiz College has been reviewed and APPROVED. You have been offered provisional admission for the 2026/2027 Academic Session.`;
     
     const splitBody = doc.splitTextToSize(body, 170);
     doc.text(splitBody, 20, 115);
@@ -50,7 +50,7 @@ export default function AdmissionLetter({ application }: AdmissionLetterProps) {
     doc.text('Admission Details:', 20, 140);
     doc.setFont('helvetica', 'normal');
     doc.text(`Class: ${application.targetClassId.toUpperCase()}`, 30, 150);
-    doc.text(`Session: 2025/2026`, 30, 158);
+    doc.text(`Session: 2026/2027`, 30, 158);
     
     const instructions = `You are required to proceed to the school premises for physical verification and registration within two weeks of this offer. Please bring along original copies of your credentials and two passport photographs.`;
     const splitInstructions = doc.splitTextToSize(instructions, 170);
@@ -141,7 +141,7 @@ export default function AdmissionLetter({ application }: AdmissionLetterProps) {
           <h2 className="text-2xl font-black text-emerald-950 mb-6 uppercase tracking-tight underline transition-all">Provisional Admission Offer</h2>
           
           <p className="mb-6">
-            We are pleased to inform you that your application for admission into <strong>Imam Malik Science & Tahfiz College</strong> has been reviewed and <strong>APPROVED</strong>. You have been offered provisional admission for the 2025/2026 Academic Session.
+            We are pleased to inform you that your application for admission into <strong>Imam Malik Science & Tahfiz College</strong> has been reviewed and <strong>APPROVED</strong>. You have been offered provisional admission for the 2026/2027 Academic Session.
           </p>
 
           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-8">
@@ -153,7 +153,7 @@ export default function AdmissionLetter({ application }: AdmissionLetterProps) {
               </div>
               <div>
                 <p className="text-[10px] text-slate-400 font-bold uppercase">Academic Session</p>
-                <p className="font-bold text-slate-800">2025/2026</p>
+                <p className="font-bold text-slate-800">2026/2027</p>
               </div>
             </div>
           </div>

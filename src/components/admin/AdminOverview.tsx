@@ -186,6 +186,7 @@ export default function AdminOverview() {
               <p className="text-sm text-slate-500">Term-by-term fee collection overview</p>
             </div>
             <select className="bg-slate-100 border-none rounded-lg text-xs font-bold px-3 py-2 text-slate-700">
+              <option>2026/2027 Session</option>
               <option>2025/2026 Session</option>
               <option>2024/2025 Session</option>
             </select>
