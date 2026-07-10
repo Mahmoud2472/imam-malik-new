@@ -18,8 +18,21 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "firebase/app": [
+        "src/lib/firebase-shim.ts"
+      ],
+      "firebase/auth": [
+        "src/lib/firebase-shim.ts"
+      ],
+      "firebase/firestore": [
+        "src/lib/firebase-shim.ts"
+      ],
+      "firebase/storage": [
+        "src/lib/firebase-shim.ts"
       ]
     },
+    "baseUrl": ".",
     "allowImportingTsExtensions": true,
     "noEmit": true
   }

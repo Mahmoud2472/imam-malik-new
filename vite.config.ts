@@ -74,6 +74,10 @@ export default defineConfig(({mode}) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        'firebase/app': path.resolve(__dirname, 'src/lib/firebase-shim.ts'),
+        'firebase/auth': path.resolve(__dirname, 'src/lib/firebase-shim.ts'),
+        'firebase/firestore': path.resolve(__dirname, 'src/lib/firebase-shim.ts'),
+        'firebase/storage': path.resolve(__dirname, 'src/lib/firebase-shim.ts'),
       },
     },
     server: {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, addDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, addDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { CheckCircle, XCircle, Search, Filter, Loader2, Trash2, Eye, X } from 'lucide-react';
@@ -32,15 +32,18 @@ export default function AdminApplications() {
         paymentStatus: paymentStatus
       };
 
-      if (isSupabaseConfigured) {
-        try {
-          await supabase.from('applications').update(updates).eq('id', selectedApp.id);
-        } catch (supErr) {
-          console.warn("Supabase payment update error:", supErr);
-        }
+      try {
+        await supabase.from('applications').update(updates).eq('id', selectedApp.id);
+      } catch (supErr) {
+        console.warn("Supabase payment update error:", supErr);
       }
 
-      await updateDoc(doc(db, "applications", selectedApp.id), updates);
+      try {
+        const firestoreDocId = selectedApp.id;
+        await setDoc(doc(db, "applications", firestoreDocId), updates, { merge: true });
+      } catch (fireErr) {
+        console.warn("Firestore payment update fallback error:", fireErr);
+      }
 
       setSelectedApp((prev: any) => ({
         ...prev,
@@ -120,35 +123,67 @@ export default function AdminApplications() {
   const approveApp = async (app: any) => {
     if (window.confirm(`Approve application for ${app.firstName}? This will grant them official admission status.`)) {
       try {
+        const generatedStudentId = `IMC${new Date().getFullYear()}${Math.floor(Math.random() * 9000) + 1000}`;
+
         // 1. Update Application status
-        if (isSupabaseConfigured) {
-          try {
-            await supabase.from('applications').update({
-              status: 'approved',
-              approvedDate: new Date().toISOString()
-            }).eq('id', app.id);
-          } catch (supErr) {
-            console.warn("Supabase approval sync error:", supErr);
-          }
+        try {
+          await supabase.from('applications').update({
+            status: 'approved',
+            approvedDate: new Date().toISOString()
+          }).eq('id', app.id);
+        } catch (supErr) {
+          console.warn("Supabase approval sync error:", supErr);
         }
 
-        await updateDoc(doc(db, "applications", app.id), { 
+        const firestoreDocId = app.id;
+        await setDoc(doc(db, "applications", firestoreDocId), { 
           status: 'approved',
           approvedDate: serverTimestamp() 
-        });
+        }, { merge: true });
 
         // 2. Update User record to mark as admitted / transition to student role if needed
         // We look up the user by the userId stored in the application
         if (app.userId) {
+          // Update Supabase profile if configured
+          try {
+            await supabase.from('profiles').update({
+              role: 'student',
+              admission_status: 'approved',
+              target_class: app.targetClassId,
+              student_id: generatedStudentId
+            }).eq('id', app.userId);
+          } catch (supErr) {
+            console.warn("Supabase profile approval update error:", supErr);
+          }
+
           const userRef = doc(db, "users", app.userId);
-          await updateDoc(userRef, { 
+          await setDoc(userRef, { 
             admissionStatus: 'approved',
             targetClass: app.targetClassId,
-            role: 'student' 
-          });
+            role: 'student',
+            studentId: generatedStudentId
+          }, { merge: true });
         }
 
-        // 3. Store Dashboard Notification for the applicant
+        // 3. Create Student record in "students" collection so they show up under Students tab
+        try {
+          await addDoc(collection(db, "students"), {
+            firstName: app.firstName,
+            lastName: app.lastName,
+            admissionNumber: generatedStudentId,
+            currentClassId: app.targetClassId,
+            gender: app.gender || 'Male',
+            guardianName: app.guardianName || '',
+            guardianPhone: app.guardianPhone || '',
+            address: app.address || '',
+            status: 'active',
+            userId: app.userId || ''
+          });
+        } catch (studentErr) {
+          console.error("Error creating student record in Firestore:", studentErr);
+        }
+
+        // 4. Store Dashboard Notification for the applicant
         await addDoc(collection(db, "notifications"), {
           userId: app.userId || 'guest',
           applicantEmail: app.email,
@@ -159,7 +194,21 @@ export default function AdminApplications() {
           createdAt: new Date().toISOString()
         });
 
-        // 4. Store Automated Outgoing Email Trigger Log
+        try {
+          await supabase.from('notifications').insert({
+            userId: app.userId || 'guest',
+            applicantEmail: app.email,
+            title: "Admission Status: Approved! 🎉",
+            message: `Congratulations ${app.firstName}! Your admission application for class ${getClassName(app.targetClassId)} has been approved. You are now promoted and can view your full student records.`,
+            type: "admission_status",
+            status: "unread",
+            createdAt: new Date().toISOString()
+          });
+        } catch (supNotifErr) {
+          console.warn("Supabase approval notification error:", supNotifErr);
+        }
+
+        // 5. Store Automated Outgoing Email Trigger Log
         await addDoc(collection(db, "email_logs"), {
           userId: app.userId || 'guest',
           to: app.email,
@@ -169,7 +218,7 @@ export default function AdminApplications() {
           status: "delivered"
         });
         
-        alert("Application Approved! Realtime notification sent and automated email logged.");
+        alert("Application Approved! Realtime notification sent, student profile provisioned, and automated email logged.");
       } catch (error) {
         console.error("Approval error:", error);
         alert("Failed to approve application.");
@@ -180,25 +229,24 @@ export default function AdminApplications() {
   const rejectApp = async (app: any) => {
     if (window.confirm(`Are you sure you want to reject ${app.firstName}'s application?`)) {
       try {
-        if (isSupabaseConfigured) {
-          try {
-            await supabase.from('applications').update({
-              status: 'rejected'
-            }).eq('id', app.id);
-          } catch (supErr) {
-            console.warn("Supabase rejection sync error:", supErr);
-          }
+        try {
+          await supabase.from('applications').update({
+            status: 'rejected'
+          }).eq('id', app.id);
+        } catch (supErr) {
+          console.warn("Supabase rejection sync error:", supErr);
         }
 
-        await updateDoc(doc(db, "applications", app.id), { 
+        const firestoreDocId = app.id;
+        await setDoc(doc(db, "applications", firestoreDocId), { 
           status: 'rejected' 
-        });
+        }, { merge: true });
 
         if (app.userId) {
           const userRef = doc(db, "users", app.userId);
-          await updateDoc(userRef, {
+          await setDoc(userRef, {
             admissionStatus: 'rejected'
-          });
+          }, { merge: true });
         }
 
         // 3. Store Dashboard Notification for the applicant
@@ -211,6 +259,20 @@ export default function AdminApplications() {
           status: "unread",
           createdAt: new Date().toISOString()
         });
+
+        try {
+          await supabase.from('notifications').insert({
+            userId: app.userId || 'guest',
+            applicantEmail: app.email,
+            title: "Admission Status Update ⚠️",
+            message: `Hello. Your admission application to class ${getClassName(app.targetClassId)} has been rejected. Please contact the admissions office if you would like to seek more feedback.`,
+            type: "admission_status",
+            status: "unread",
+            createdAt: new Date().toISOString()
+          });
+        } catch (supNotifErr) {
+          console.warn("Supabase rejection notification error:", supNotifErr);
+        }
 
         // 4. Store Automated Outgoing Email Trigger Log
         await addDoc(collection(db, "email_logs"), {
@@ -230,16 +292,15 @@ export default function AdminApplications() {
     }
   };
 
-  const deleteApp = async (id: string) => {
+  const deleteApp = async (app: any) => {
     if (window.confirm("Permanently delete this application record?")) {
-      if (isSupabaseConfigured) {
-        try {
-          await supabase.from('applications').delete().eq('id', id);
-        } catch (supErr) {
-          console.warn("Supabase delete sync error:", supErr);
-        }
+      try {
+        await supabase.from('applications').delete().eq('id', app.id);
+      } catch (supErr) {
+        console.warn("Supabase delete sync error:", supErr);
       }
-      await deleteDoc(doc(db, "applications", id));
+      const firestoreDocId = app.id;
+      await deleteDoc(doc(db, "applications", firestoreDocId));
     }
   };
 
@@ -339,7 +400,7 @@ export default function AdminApplications() {
                         </button>
                       )}
                       <button 
-                        onClick={() => deleteApp(app.id)} 
+                        onClick={() => deleteApp(app)} 
                         title="Delete Permanently"
                         className="p-2 text-red-400 hover:bg-red-50 rounded-xl transition-colors"
                       >
@@ -380,7 +441,7 @@ export default function AdminApplications() {
                 <h3 className="text-xl font-bold text-emerald-950 uppercase tracking-tight">Application Details</h3>
                 <button onClick={() => setSelectedApp(null)} className="p-2 text-slate-400 hover:text-slate-600"><X size={20} /></button>
               </div>
-              <div className="p-8 max-h-[70vh] overflow-y-auto space-y-8">
+              <div className="p-8 max-h-[55vh] overflow-y-auto space-y-8">
                 <div className="grid grid-cols-2 gap-8">
                    <div className="space-y-1">
                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Full Name</p>
@@ -434,9 +495,10 @@ export default function AdminApplications() {
                         {selectedApp.status || 'pending'}
                       </span>
                    </div>
-                </div>
-              </div>
-                 <div className="p-6 border-t border-slate-100 bg-slate-50/50 space-y-4">
+                   </div>
+
+                 {/* Manual Payment Verification inside the scrollable area */}
+                 <div className="pt-6 border-t border-slate-100 bg-slate-50/70 p-5 rounded-2xl space-y-4">
                      <div className="flex items-center gap-2">
                        <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
                        <h4 className="text-xs font-black text-emerald-950 uppercase tracking-wider">Manual Payment Verification</h4>
@@ -480,7 +542,8 @@ export default function AdminApplications() {
                        </button>
                      </div>
                  </div>
-              <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+               </div>
+               <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
                  {selectedApp.status !== 'approved' && (
                    <button 
                     onClick={() => { approveApp(selectedApp); setSelectedApp(null); }} 

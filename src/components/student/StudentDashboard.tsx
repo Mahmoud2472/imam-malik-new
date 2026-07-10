@@ -11,8 +11,8 @@ import { signOut } from 'firebase/auth';
 import { auth, db, storage } from '../../lib/firebase';
 import { useAuth } from '../../lib/auth';
 import { cn, formatCurrency, formatDate, MAHMOUD_ADAMU_SIGNATURE } from '../../lib/utils';
-import { isSupabaseConfigured } from '../../lib/supabase';
-import { collection, query, where, getDocs, limit, updateDoc, doc } from 'firebase/firestore';
+import { isSupabaseConfigured, supabase } from '../../lib/supabase';
+import { collection, query, where, getDocs, limit, updateDoc, doc, onSnapshot, orderBy } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -30,10 +30,28 @@ export default function StudentDashboard() {
     if (user) {
       const fetchApp = async () => {
         try {
-          const q = query(collection(db, "applications"), where("userId", "==", user.uid), limit(1));
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            setApplication({ id: snap.docs[0].id, ...snap.docs[0].data() });
+          const [firestoreSnap, supabaseRes] = await Promise.all([
+            getDocs(query(collection(db, "applications"), where("userId", "==", user.uid), limit(1))).catch(err => {
+              console.warn("Firestore applications query failed on student dashboard:", err);
+              return null;
+            }),
+            isSupabaseConfigured
+              ? supabase.from('applications').select('*').eq('userId', user.uid).limit(1).catch(err => {
+                  console.warn("Supabase applications query failed on student dashboard:", err);
+                  return { data: null };
+                })
+              : Promise.resolve({ data: null })
+          ]);
+
+          let foundApp = null;
+          if (firestoreSnap && !firestoreSnap.empty) {
+            foundApp = { id: firestoreSnap.docs[0].id, ...firestoreSnap.docs[0].data() };
+          } else if (supabaseRes && supabaseRes.data && supabaseRes.data.length > 0) {
+            foundApp = supabaseRes.data[0];
+          }
+
+          if (foundApp) {
+            setApplication(foundApp);
           }
         } catch (err) {
           console.warn("Could not fetch application for student dashboard overview:", err);
@@ -168,6 +186,171 @@ function StudentOverview({ application }: { application: any }) {
   const { userData, user } = useAuth();
   const [showLetter, setShowLetter] = useState(false);
   const [showPrintSlip, setShowPrintSlip] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    let unsubNotifications: (() => void) | null = null;
+    
+    try {
+      const q1 = query(
+        collection(db, "notifications"), 
+        orderBy("createdAt", "desc")
+      );
+      unsubNotifications = onSnapshot(q1, async (snap) => {
+        const firestoreList = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const firestoreFiltered = firestoreList.filter(n => {
+          return n.userId === user.uid || n.userId === 'all' || n.applicantEmail === user.email;
+        });
+
+        if (isSupabaseConfigured) {
+          try {
+            const { data, error } = await supabase
+              .from('notifications')
+              .select('*')
+              .order('createdAt', { ascending: false });
+            if (!error && data) {
+              const supabaseFiltered = data.filter((n: any) => {
+                return n.userId === user.uid || n.userId === 'all' || n.applicantEmail === user.email;
+              });
+              
+              const merged = [...firestoreFiltered];
+              supabaseFiltered.forEach((sn: any) => {
+                if (!merged.some(fn => fn.id === sn.id || (fn.title === sn.title && fn.message === sn.message))) {
+                  merged.push(sn);
+                }
+              });
+              
+              merged.sort((a: any, b: any) => {
+                const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return timeB - timeA;
+              });
+
+              setNotifications(merged);
+            } else {
+              setNotifications(firestoreFiltered);
+            }
+          } catch (err) {
+            console.warn("Supabase notifications fetch error:", err);
+            setNotifications(firestoreFiltered);
+          }
+        } else {
+          setNotifications(firestoreFiltered);
+        }
+        setLoadingNotifications(false);
+      }, (err) => {
+        console.warn("Error listening to notifications from Firestore:", err);
+        setLoadingNotifications(false);
+      });
+    } catch (err) {
+      console.warn("Failed to subscribe to Firestore notifications:", err);
+      setLoadingNotifications(false);
+    }
+
+    return () => {
+      if (unsubNotifications) unsubNotifications();
+    };
+  }, [user]);
+
+  const downloadAdmissionLetterPDF = async () => {
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFillColor(5, 46, 22); // emerald-950
+    doc.rect(0, 0, 210, 40, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.setFont('helvetica', 'bold');
+    doc.text('IMAM MALIK SCIENCE & TAHFIZ COLLEGE', 105, 20, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Karefa Road Tudun Wada Dankadai, Kano State | 07011748311', 105, 30, { align: 'center' });
+    
+    // Title
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ADMISSION OFFER LETTER', 105, 60, { align: 'center' });
+    
+    // Content
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'normal');
+    
+    const date = new Date().toLocaleDateString();
+    doc.text(`Date: ${date}`, 20, 80);
+    doc.text(`Application ID: ${displayApplication.id.toUpperCase()}`, 20, 88);
+    
+    doc.text(`Dear ${displayApplication.firstName} ${displayApplication.lastName},`, 20, 105);
+    
+    const body = `We are pleased to inform you that your application for admission into Imam Malik Science & Tahfiz College has been reviewed and APPROVED. You have been offered provisional admission for the 2025/2026 Academic Session.`;
+    
+    const splitBody = doc.splitTextToSize(body, 170);
+    doc.text(splitBody, 20, 115);
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('Admission Details:', 20, 140);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Class: ${(displayApplication.targetClassId || '').toUpperCase()}`, 30, 150);
+    doc.text(`Session: 2025/2026`, 30, 158);
+    
+    const instructions = `You are required to proceed to the school premises for physical verification and registration within two weeks of this offer. Please bring along original copies of your credentials and two passport photographs.`;
+    const splitInstructions = doc.splitTextToSize(instructions, 170);
+    doc.text(splitInstructions, 20, 180);
+    
+    doc.text('Congratulations once again.', 20, 210);
+    
+    doc.text('Yours faithfully,', 20, 225);
+    try {
+      const pngSignature = await new Promise<string>((resolve) => {
+        const img = new Image();
+        img.src = MAHMOUD_ADAMU_SIGNATURE;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 200;
+          canvas.height = 100;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, 200, 100);
+            resolve(canvas.toDataURL('image/png'));
+          } else {
+            resolve(MAHMOUD_ADAMU_SIGNATURE);
+          }
+        };
+        img.onerror = () => resolve(MAHMOUD_ADAMU_SIGNATURE);
+      });
+      doc.addImage(pngSignature, 'PNG', 20, 228, 35, 15);
+    } catch (e) {
+      console.warn("Signature addition failed in PDF:", e);
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('Mahmoud Adamu', 20, 250);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text('Secretary, Governing Board', 20, 255);
+    doc.text('Imam Malik Science & Tahfiz College', 20, 260);
+    
+    // Embedded Verification QR Code
+    try {
+      const qrDataUrl = await QRCode.toDataURL(`VERIFY-IMSC-LETTER-${displayApplication.id}`);
+      doc.addImage(qrDataUrl, 'PNG', 160, 212, 30, 30);
+      doc.setFontSize(7);
+      doc.setTextColor(150, 150, 150);
+      doc.text("Verify Admission Offer", 175, 245, { align: 'center' });
+    } catch (e) {
+      console.warn("QR code generation failed:", e);
+    }
+
+    // Footer decoration
+    doc.setDrawColor(245, 158, 11); // amber-500
+    doc.setLineWidth(2);
+    doc.line(20, 265, 190, 265);
+
+    doc.save(`Admission_Letter_${displayApplication.lastName}.pdf`);
+  };
 
   const CLASSES = [
     { id: 'jss1', name: 'JSS 1' },
@@ -231,6 +414,12 @@ function StudentOverview({ application }: { application: any }) {
                 <FileText size={16} /> View Admission Letter
               </button>
               <button 
+                onClick={downloadAdmissionLetterPDF}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-sm hover:scale-[1.02]"
+              >
+                <Download size={16} /> Download Admission Letter (PDF)
+              </button>
+              <button 
                 onClick={() => setShowPrintSlip(true)}
                 className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-sm"
               >
@@ -257,18 +446,48 @@ function StudentOverview({ application }: { application: any }) {
           </div>
         </div>
 
-        <div className="glass-card p-8">
-          <h3 className="text-lg font-bold text-emerald-950 mb-6 flex items-center gap-2"><Calendar size={20} className="text-amber-500" /> Upcoming Events</h3>
-          <div className="space-y-6">
-            <div className="relative pl-6 border-l border-emerald-100">
-              <div className="absolute left-[-5px] top-0 w-2.5 h-2.5 bg-emerald-600 rounded-full" />
-              <p className="text-xs text-slate-400 font-bold">APR 24, 2026</p>
-              <h5 className="text-sm font-bold text-slate-800">2nd Term Examination</h5>
-            </div>
-            <div className="relative pl-6 border-l border-emerald-100">
-               <div className="absolute left-[-5px] top-0 w-2.5 h-2.5 bg-amber-500 rounded-full" />
-               <p className="text-xs text-slate-400 font-bold">MAY 05, 2026</p>
-               <h5 className="text-sm font-bold text-slate-800">Inter-House Sports</h5>
+        <div className="space-y-6">
+          {/* Active Notifications Alert Widget */}
+          <div className="glass-card p-6 border-l-4 border-blue-500 bg-white shadow-sm">
+            <h3 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-2 mb-4">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+              </span>
+              Portal Notifications
+            </h3>
+            {loadingNotifications ? (
+              <div className="flex items-center gap-2 text-xs text-slate-400 py-4 justify-center">
+                <Loader2 className="animate-spin text-blue-500" size={14} /> Loading alerts...
+              </div>
+            ) : notifications.length === 0 ? (
+              <p className="text-xs text-slate-400 py-4 text-center">No current dashboard notifications.</p>
+            ) : (
+              <div className="space-y-4 max-h-60 overflow-y-auto pr-1">
+                {notifications.map((n) => (
+                  <div key={n.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1">
+                    <p className="text-[10px] text-slate-400 font-bold">{formatDate(n.createdAt)}</p>
+                    <h4 className="text-xs font-black text-slate-800">{n.title}</h4>
+                    <p className="text-[11px] text-slate-600 leading-relaxed font-medium">{n.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="glass-card p-6">
+            <h3 className="text-sm font-bold text-emerald-950 mb-6 flex items-center gap-2"><Calendar size={20} className="text-amber-500" /> Upcoming Events</h3>
+            <div className="space-y-6">
+              <div className="relative pl-6 border-l border-emerald-100">
+                <div className="absolute left-[-5px] top-0 w-2.5 h-2.5 bg-emerald-600 rounded-full" />
+                <p className="text-xs text-slate-400 font-bold">APR 24, 2026</p>
+                <h5 className="text-sm font-bold text-slate-800">2nd Term Examination</h5>
+              </div>
+              <div className="relative pl-6 border-l border-emerald-100">
+                 <div className="absolute left-[-5px] top-0 w-2.5 h-2.5 bg-amber-500 rounded-full" />
+                 <p className="text-xs text-slate-400 font-bold">MAY 05, 2026</p>
+                 <h5 className="text-sm font-bold text-slate-800">Inter-House Sports</h5>
+              </div>
             </div>
           </div>
         </div>

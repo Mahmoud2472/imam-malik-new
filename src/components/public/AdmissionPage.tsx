@@ -4,8 +4,9 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, CreditCard, FileText, UserPlus, Download, AlertCircle, Loader2, ShieldCheck, LogIn, Printer, Bell, Mail, Check, X } from 'lucide-react';
 import { db } from '../../lib/firebase';
-import { collection, query, where, onSnapshot, getDocs, updateDoc, doc, orderBy, addDoc, limit } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs, updateDoc, doc, orderBy, addDoc, limit, setDoc } from 'firebase/firestore';
 import { supabase } from '../../lib/supabase';
+import { addDebugLog } from '../../lib/debug';
 import { jsPDF } from 'jspdf';
 import { generateId, formatDate, cn, formatCurrency, MAHMOUD_ADAMU_SIGNATURE } from '../../lib/utils';
 import { useAuth } from '../../lib/auth';
@@ -36,20 +37,61 @@ type FormData = {
 };
 
 export default function AdmissionPage() {
-  const { user, userData, loading: authLoading } = useAuth();
+  const { user, userData, loading: authLoading, signOut } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const paymentRef = searchParams.get('reference') || searchParams.get('trxref') || '';
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(() => {
+    const activeUserId = localStorage.getItem('imsc_active_user_id') || 'anon';
+    const localAppKey = `imsc_submitted_app_${activeUserId}`;
+    if (localStorage.getItem(localAppKey)) {
+      return 4;
+    }
+    if (localStorage.getItem(`imsc_paid_uid_${activeUserId}`) === 'true') {
+      return 3;
+    }
+    return 1;
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [applicationId, setApplicationId] = useState<string | null>(null);
-  const [hasPaid, setHasPaid] = useState(false);
-  const [checkingPayment, setCheckingPayment] = useState(true);
+  const [hasPaid, setHasPaid] = useState(() => {
+    const activeUserId = localStorage.getItem('imsc_active_user_id') || 'anon';
+    const localAppKey = `imsc_submitted_app_${activeUserId}`;
+    return localStorage.getItem(`imsc_paid_uid_${activeUserId}`) === 'true' || !!localStorage.getItem(localAppKey);
+  });
+  const [checkingPayment, setCheckingPayment] = useState(() => {
+    const activeUserId = localStorage.getItem('imsc_active_user_id') || 'anon';
+    const localAppKey = `imsc_submitted_app_${activeUserId}`;
+    const hasApp = !!localStorage.getItem(localAppKey);
+    const hasPaidLocal = localStorage.getItem(`imsc_paid_uid_${activeUserId}`) === 'true';
+    if (hasApp || hasPaidLocal) {
+      return false;
+    }
+    return true;
+  });
   const [verifyingUrl, setVerifyingUrl] = useState(false);
   const verifiedRefs = React.useRef<Set<string>>(new Set());
   const [paymentStatusMessage, setPaymentStatusMessage] = useState("We're checking your payment with Paystack. Please don't refresh the page, your form will load in a moment.");
-  const [existingApplication, setExistingApplication] = useState<any>(null);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(true);
+  const [existingApplication, setExistingApplication] = useState<any>(() => {
+    const activeUserId = localStorage.getItem('imsc_active_user_id') || 'anon';
+    const localAppKey = `imsc_submitted_app_${activeUserId}`;
+    try {
+      const raw = localStorage.getItem(localAppKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [isLoadingStatus, setIsLoadingStatus] = useState(() => {
+    const activeUserId = localStorage.getItem('imsc_active_user_id') || 'anon';
+    const localAppKey = `imsc_submitted_app_${activeUserId}`;
+    const hasApp = !!localStorage.getItem(localAppKey);
+    const hasPaidLocal = localStorage.getItem(`imsc_paid_uid_${activeUserId}`) === 'true';
+    if (hasApp || hasPaidLocal) {
+      return false;
+    }
+    return true;
+  });
   const [admissionFee, setAdmissionFee] = useState({ amount: 1000, name: 'Admission & Prospectus Fee' });
   const [openedPaymentTab, setOpenedPaymentTab] = useState(false);
   const [copiedCallbackUrl, setCopiedCallbackUrl] = useState(false);
@@ -104,6 +146,40 @@ export default function AdmissionPage() {
       });
       return () => unsubscribe();
     }
+  }, [user]);
+
+  // Real-time Firestore application status sync
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const q = query(
+      collection(db, "applications"),
+      where("userId", "==", user.uid),
+      limit(1)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        const docData = snapshot.docs[0].data();
+        const appWithId = { id: snapshot.docs[0].id, ...docData };
+        setExistingApplication(appWithId);
+        
+        // Sync to local storage
+        try {
+          localStorage.setItem(`imsc_submitted_app_${user.uid}`, JSON.stringify(appWithId));
+        } catch (e) {}
+
+        // If status is approved or pending, transition immediately to Step 4
+        if (docData.status === 'approved' || docData.status === 'pending') {
+          setStep(4);
+          setHasPaid(true);
+        }
+      }
+    }, (err) => {
+      console.warn("Real-time application listener error in AdmissionPage:", err);
+    });
+
+    return () => unsubscribe();
   }, [user]);
 
   const markNotificationsAsRead = async () => {
@@ -327,59 +403,35 @@ export default function AdmissionPage() {
       // --- BACKGROUND ACTION: Handle database recording asynchronously without blocking the user ---
       (async () => {
         try {
-          // 1. Record in Supabase
-          try {
-            const { data: qCheck } = await supabase
-              .from('payments')
-              .select('*')
-              .eq('paystackReference', reference)
-              .limit(1);
-            
-            if (!qCheck || qCheck.length === 0) {
-              await supabase.from('payments').insert({
+          const { data: qCheck } = await supabase
+            .from('payments')
+            .select('*')
+            .eq('paystackReference', reference)
+            .limit(1);
+          
+          if (!qCheck || qCheck.length === 0) {
+            // Write payment and notification records in parallel to eliminate sequential lags
+            await Promise.all([
+              supabase.from('payments').insert({
                 studentId: user?.uid || "guest-or-anon",
                 amount: admissionFee.amount,
                 type: "Admission Fee",
                 receiptNumber: receiptNo,
-                status: 'verified', // We trust the Paystack redirect link for this setup
+                status: 'verified',
                 paystackReference: reference,
                 verificationMethod: silent ? 'url_redirect' : 'manual_entry'
-              });
-            }
-          } catch (dbErr) {
-            console.warn("Background Supabase payment save skipped/failed:", dbErr);
-          }
-
-          // 2. Record in Firebase/Firestore
-          try {
-            await addDoc(collection(db, "payments"), {
-              studentId: user?.uid || "guest-or-anon",
-              amount: admissionFee.amount,
-              type: "Admission Fee",
-              receiptNumber: receiptNo,
-              status: 'verified',
-              paymentDate: new Date().toISOString(),
-              paystackReference: reference,
-              verificationMethod: silent ? 'url_redirect' : 'manual_entry'
-            });
-
-            // Create automated dashboard notification for admins
-            try {
-              await addDoc(collection(db, "notifications"), {
-                userId: 'admin', // target role
+              }),
+              supabase.from('notifications').insert({
+                userId: 'admin',
                 applicantEmail: user?.email || 'guest@school.com',
                 title: "New Admission Payment: Verified! 💳",
                 message: `An admission payment of ₦${admissionFee.amount.toLocaleString()} has been completed successfully by ${user?.displayName || 'an applicant'} (Email: ${user?.email || 'N/A'}) with reference ${reference}.`,
                 type: "admission_payment",
                 status: "unread",
                 createdAt: new Date().toISOString()
-              });
-              console.log("Admin payment notification created successfully in background!");
-            } catch (notifErr) {
-              console.warn("Could not create admin notification for payment:", notifErr);
-            }
-          } catch (firePayErr) {
-            console.warn("Background Firebase payment save skipped/failed:", firePayErr);
+              })
+            ]);
+            console.log("Supabase payment record and notification created successfully in parallel!");
           }
         } catch (bgErr) {
           console.warn("Background billing logic failed:", bgErr);
@@ -612,6 +664,7 @@ export default function AdmissionPage() {
 
     // 4. Check for successful payment and application status
     const checkStatus = async () => {
+      addDebugLog('AdmissionPage', `Evaluating admission status for active user ID: "${user?.uid || 'guest'}"`, 'info');
       // Check local cache first for instant load!
       const localPaid = user?.uid ? localStorage.getItem(`imsc_paid_uid_${user.uid}`) === 'true' : false;
       const localAppKey = user?.uid ? `imsc_submitted_app_${user.uid}` : 'imsc_submitted_app_guest';
@@ -620,6 +673,7 @@ export default function AdmissionPage() {
         const raw = localStorage.getItem(localAppKey);
         if (raw) {
           localApp = JSON.parse(raw);
+          addDebugLog('AdmissionPage', `Loaded draft application from local cache. Status: "${localApp.status || 'pending'}"`, 'info');
         }
       } catch (e) {}
 
@@ -645,76 +699,77 @@ export default function AdmissionPage() {
         const ref = paymentRef;
         let verifiedJustNow = false;
         if (ref && !hasPaid) {
+          addDebugLog('AdmissionPage', `Detected transaction reference: "${ref}" in URL. Initiating verification...`, 'info');
           if (verifiedRefs.current.has(ref)) {
             navigate('/admission', { replace: true });
           } else {
             verifiedRefs.current.add(ref);
             verifiedJustNow = await verifyManualPayment(ref, true);
+            addDebugLog('AdmissionPage', `Verification result for reference "${ref}": ${verifiedJustNow ? 'SUCCESS' : 'FAILED'}`, verifiedJustNow ? 'success' : 'error');
             navigate('/admission', { replace: true });
           }
         }
 
-        // 2. Check Database for existing payment records for this user (with try-catch safety)
+        // 2. Parallel check of payments and applications from both Supabase and Firestore
         let foundPayment = false;
-        if (user?.uid && !localPaid && !verifiedJustNow) {
-          try {
-            const { data: payments } = await supabase
-              .from('payments')
-              .select('*')
-              .eq('studentId', user.uid);
+        let foundApp: any = null;
 
-            foundPayment = (payments || []).some((d: any) => {
+        if (user?.uid) {
+          const checkPayments = !localPaid && !verifiedJustNow;
+          addDebugLog('AdmissionPage', `Querying online database. Payments trace required: ${checkPayments}. Applications trace required: true.`, 'info');
+          
+          const [supabasePaymentsRes, supabaseAppsRes, firestoreAppRes] = await Promise.all([
+            // Supabase payments query
+            checkPayments
+              ? Promise.resolve(supabase.from('payments').select('*').eq('studentId', user.uid)).catch(err => {
+                  addDebugLog('AdmissionPage', `Supabase payments query failed: ${err instanceof Error ? err.message : String(err)}`, 'warn');
+                  return { data: null };
+                })
+              : Promise.resolve({ data: null }),
+
+            // Supabase applications query
+            Promise.resolve(supabase.from('applications').select('*').eq('userId', user.uid).limit(1)).catch(err => {
+              addDebugLog('AdmissionPage', `Supabase applications query failed: ${err instanceof Error ? err.message : String(err)}`, 'warn');
+              return { data: null };
+            }),
+
+            // Firestore applications query fallback
+            getDocs(query(collection(db, "applications"), where("userId", "==", user.uid), limit(1)))
+              .then(snap => {
+                if (!snap.empty) {
+                  return { id: snap.docs[0].id, ...snap.docs[0].data() };
+                }
+                return null;
+              })
+              .catch(err => {
+                addDebugLog('AdmissionPage', `Firestore applications query fallback failed: ${err instanceof Error ? err.message : String(err)}`, 'warn');
+                return null;
+              })
+          ]);
+
+          // Process payments results
+          if (supabasePaymentsRes && supabasePaymentsRes.data) {
+            foundPayment = (supabasePaymentsRes.data || []).some((d: any) => {
               const type = (d.type || "").toLowerCase();
               return type.includes('admission');
             });
-          } catch (payErr) {
-            console.warn("Supabase payment check failed. Relying on local memory and localstorage.", payErr);
+            addDebugLog('AdmissionPage', `Online Payments results: Found ${supabasePaymentsRes.data.length} payments. Admission Match: ${foundPayment ? 'YES' : 'NO'}`, foundPayment ? 'success' : 'info');
           }
 
-          // Fallback check in Firestore for payment documentation
-          if (!foundPayment) {
-            try {
-              const qPay = query(collection(db, "payments"), where("studentId", "==", user.uid));
-              const snapPay = await getDocs(qPay);
-              foundPayment = !snapPay.empty;
-            } catch (firePayErr) {
-              console.warn("Firestore payment check failed:", firePayErr);
-            }
+          // Process applications results
+          if (supabaseAppsRes && supabaseAppsRes.data && supabaseAppsRes.data.length > 0) {
+            foundApp = supabaseAppsRes.data[0];
+            addDebugLog('AdmissionPage', `Online Application found: "${foundApp.id}" with status: "${foundApp.status}"`, 'success');
+          } else if (firestoreAppRes) {
+            foundApp = firestoreAppRes;
+            addDebugLog('AdmissionPage', `Online Firestore Application found fallback: "${foundApp.id}" with status: "${foundApp.status}"`, 'success');
+          } else {
+            addDebugLog('AdmissionPage', 'No online application record found for user.', 'info');
           }
         }
 
         const isPaid = verifiedJustNow || foundPayment || localPaid;
-
-        // 3. Check for existing application (Supabase check with try-catch fallback)
-        let foundApp: any = null;
-        if (user?.uid) {
-          try {
-            const { data: applications } = await supabase
-              .from('applications')
-              .select('*')
-              .eq('userId', user.uid)
-              .limit(1);
-
-            if (applications && applications.length > 0) {
-              foundApp = applications[0];
-            }
-          } catch (appQueryErr) {
-            console.warn("Supabase application check failed. Falling back to local storage.", appQueryErr);
-          }
-
-          // Fallback check in Firestore for existing application
-          if (!foundApp) {
-            try {
-              const qApp = query(collection(db, "applications"), where("userId", "==", user.uid), limit(1));
-              const snapApp = await getDocs(qApp);
-              if (!snapApp.empty) {
-                foundApp = { id: snapApp.docs[0].id, ...snapApp.docs[0].data() };
-              }
-            } catch (fireAppErr) {
-              console.warn("Firestore application check failed:", fireAppErr);
-            }
-          }
-        }
+        addDebugLog('AdmissionPage', `Final check status result. isPaid: ${isPaid} | foundApp: ${!!foundApp} | localApp: ${!!localApp}`, isPaid ? 'success' : 'info');
 
         // Determine the correct step
         if (!user) {
@@ -740,7 +795,7 @@ export default function AdmissionPage() {
             setStep(2);
           }
         } else if (localApp) {
-          console.log("Restored saved application profile from local recovery:", localApp);
+          addDebugLog('AdmissionPage', 'Restoring application profile from local recovery backup.', 'info');
           setExistingApplication(localApp);
           setStep(4);
           setHasPaid(true);
@@ -755,10 +810,12 @@ export default function AdmissionPage() {
 
         // Force step 4 if user is already a student/admitted (Role-based override)
         if (userData?.role === 'student' || userData?.admissionStatus === 'approved') {
+          addDebugLog('AdmissionPage', 'User is already a registered/admitted student. Directing to admission confirmation portal.', 'success');
           setStep(4);
         }
 
       } catch (err) {
+        addDebugLog('AdmissionPage', `Error resolving admission status: ${err instanceof Error ? err.message : String(err)}`, 'error');
         console.error("Error checking admission status:", err);
       } finally {
         setIsLoadingStatus(false);
@@ -776,6 +833,18 @@ export default function AdmissionPage() {
     // We remove hasPaid from dependencies to prevent unintended loops, 
     // unless searchParams changes which indicates a return from payment
   }, [user, authLoading, navigate, setValue, paymentRef, userData?.role, userData?.admissionStatus]);
+
+  // Explicit state-check to force-render the application form immediately when status is verified
+  useEffect(() => {
+    if (user?.uid) {
+      const isPaidLocally = localStorage.getItem(`imsc_paid_uid_${user.uid}`) === 'true';
+      if (isPaidLocally && step === 2) {
+        addDebugLog('AdmissionPage [State-Check]', `Forcing immediate render of Application Form (Step 3) since payment status is verified.`, 'success');
+        setHasPaid(true);
+        setStep(3);
+      }
+    }
+  }, [user, step]);
 
   const watchSpecialNeeds = watch("hasSpecialNeeds");
   const [passportPreview, setPassportPreview] = useState<string | null>(null);
@@ -864,9 +933,10 @@ export default function AdmissionPage() {
       setExistingApplication(completeApp);
       setApplicationId(finalDocId);
 
-      // 2. Dispatch Supabase and Firebase insert in background/asynchronously to render instantly without network lags
+      // 2. Dispatch Supabase and Firebase insert in background/asynchronously in parallel to render instantly without network lags
       (async () => {
         const payload = {
+          id: txnId,
           ...data,
           userId: user?.uid || 'guest-or-anon',
           paymentStatus: 'verified',
@@ -876,20 +946,61 @@ export default function AdmissionPage() {
           transactionId: txnId
         };
 
-        // Try Supabase
+        // Save to Supabase and Firestore (applicant and payment records in parallel via Promise.all)
         try {
-          await supabase.from('applications').insert(payload);
-          console.log("Supabase background save complete!");
-        } catch (err) {
-          console.warn("Supabase background write skipped/failed:", err);
-        }
+          const appPromise = supabase.from('applications').insert(payload);
+          const paymentPromise = supabase.from('payments').insert({
+            studentId: user?.uid || "guest-or-anon",
+            amount: admissionFee.amount,
+            type: "Admission Fee",
+            receiptNumber: `REC-${txnId.slice(4)}`,
+            status: 'verified',
+            paystackReference: paidReference,
+            verificationMethod: 'submission_sync'
+          });
+          const notificationPromise = supabase.from('notifications').insert({
+            userId: 'admin',
+            applicantEmail: user?.email || data.email || 'guest@school.com',
+            title: "New Admission Application Submitted! 📝",
+            message: `A new admission application has been submitted by ${data.firstName} ${data.lastName} (Email: ${data.email || 'N/A'}).`,
+            type: "admission_application",
+            status: "unread",
+            createdAt: new Date().toISOString()
+          });
 
-        // Try Firebase/Firestore
-        try {
-          await addDoc(collection(db, "applications"), payload);
-          console.log("Firebase background save complete!");
+          // Parallel Firestore backup writes
+          const firestoreAppPromise = setDoc(doc(db, "applications", finalDocId), payload, { merge: true });
+          const firestorePaymentPromise = setDoc(doc(db, "payments", `REC-${txnId.slice(4)}`), {
+            studentId: user?.uid || "guest-or-anon",
+            amount: admissionFee.amount,
+            type: "Admission Fee",
+            receiptNumber: `REC-${txnId.slice(4)}`,
+            status: 'verified',
+            paystackReference: paidReference,
+            verificationMethod: 'submission_sync',
+            createdAt: new Date().toISOString()
+          }, { merge: true });
+          const firestoreNotificationPromise = addDoc(collection(db, "notifications"), {
+            userId: 'admin',
+            applicantEmail: user?.email || data.email || 'guest@school.com',
+            title: "New Admission Application Submitted! 📝",
+            message: `A new admission application has been submitted by ${data.firstName} ${data.lastName} (Email: ${data.email || 'N/A'}).`,
+            type: "admission_application",
+            status: "unread",
+            createdAt: new Date().toISOString()
+          });
+
+          await Promise.all([
+            appPromise, 
+            paymentPromise, 
+            notificationPromise,
+            firestoreAppPromise.catch(e => console.warn("Firestore app insert failed:", e)),
+            firestorePaymentPromise.catch(e => console.warn("Firestore payment insert failed:", e)),
+            firestoreNotificationPromise.catch(e => console.warn("Firestore notification insert failed:", e))
+          ]);
+          console.log("Supabase and Firestore background parallel save complete!");
         } catch (err) {
-          console.warn("Firebase background write skipped/failed:", err);
+          console.warn("Supabase background writes failed/skipped:", err);
         }
       })();
 
@@ -906,7 +1017,7 @@ export default function AdmissionPage() {
       formDataObj.set('guardianName', data.guardianName || '');
       formDataObj.set('guardianPhone', data.guardianPhone || '');
       formDataObj.set('address', data.address || '');
-      formDataObj.set('passportPhoto', (data.passportPhoto && data.passportPhoto.length < 5000) ? data.passportPhoto : 'Uploaded photo (stored in Firebase)');
+      formDataObj.set('passportPhoto', (data.passportPhoto && data.passportPhoto.length < 5000) ? data.passportPhoto : 'Uploaded photo (stored in Supabase)');
       formDataObj.set('hasSpecialNeeds', data.hasSpecialNeeds || '');
       formDataObj.set('specialNeedsDetails', data.specialNeedsDetails || '');
       formDataObj.set('primarySchool', data.primarySchool || '');
@@ -1221,7 +1332,7 @@ export default function AdmissionPage() {
             </div>
 
             <button 
-              onClick={() => supabase.auth.signOut().then(() => navigate('/'))}
+              onClick={() => signOut().then(() => navigate('/'))}
               className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm transition-colors border border-white/10 font-bold"
             >
               Sign Out
@@ -1428,7 +1539,7 @@ export default function AdmissionPage() {
                     If you believe this is an error or need further assistance, please contact the college registry desk.
                   </p>
                   <button
-                    onClick={() => supabase.auth.signOut()}
+                    onClick={() => signOut()}
                     className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-bold transition-all shadow-sm"
                   >
                     Sign Out
