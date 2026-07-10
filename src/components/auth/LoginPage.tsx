@@ -298,7 +298,7 @@ export default function LoginPage() {
               </p>
             </div>
             
-            <div className="grid grid-cols-2 gap-2 text-left">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-left">
               <button
                 type="button"
                 onClick={() => handleDemoLogin('admin')}
@@ -309,7 +309,7 @@ export default function LoginPage() {
                 </div>
                 <div>
                   <span className="block font-bold text-xs text-emerald-950">School Admin</span>
-                  <span className="block text-[9px] text-slate-400 font-sans mt-0.5 font-medium">Full management access</span>
+                  <span className="block text-[9px] text-slate-400 font-sans mt-0.5 font-medium leading-tight">Full management access</span>
                 </div>
               </button>
 
@@ -323,7 +323,7 @@ export default function LoginPage() {
                 </div>
                 <div>
                   <span className="block font-bold text-xs text-emerald-950">Class Teacher</span>
-                  <span className="block text-[9px] text-slate-400 font-sans mt-0.5 font-medium">Manage students & grades</span>
+                  <span className="block text-[9px] text-slate-400 font-sans mt-0.5 font-medium leading-tight">Manage students & grades</span>
                 </div>
               </button>
 
@@ -337,21 +337,7 @@ export default function LoginPage() {
                 </div>
                 <div>
                   <span className="block font-bold text-xs text-emerald-950">Active Student</span>
-                  <span className="block text-[9px] text-slate-400 font-sans mt-0.5 font-medium">View grades & pay school fees</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('applicant')}
-                className="p-3 bg-white hover:bg-emerald-50 border border-slate-100 hover:border-emerald-200 rounded-xl transition-all flex items-start gap-2.5 shadow-sm group cursor-pointer text-left"
-              >
-                <div className="p-1.5 rounded-lg bg-teal-50 text-teal-600 shrink-0 group-hover:bg-teal-100">
-                  <UserCheck size={14} />
-                </div>
-                <div>
-                  <span className="block font-bold text-xs text-emerald-950">New Applicant</span>
-                  <span className="block text-[9px] text-slate-400 font-sans mt-0.5 font-medium">Fill school admission form</span>
+                  <span className="block text-[9px] text-slate-400 font-sans mt-0.5 font-medium leading-tight">View grades & pay school fees</span>
                 </div>
               </button>
             </div>
