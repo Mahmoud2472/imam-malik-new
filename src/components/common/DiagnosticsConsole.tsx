@@ -28,6 +28,7 @@ export function DiagnosticsConsole() {
     
     // Switch to mock mode if not already
     safeStorage.setItem('imsc_force_mock_supabase', 'true');
+    safeStorage.setItem('imsc_manual_mock_supabase', 'true');
     
     const mockId = `mock-${role}-${Math.floor(Math.random() * 100000)}`;
     const email = `${role}@school.com`;
@@ -66,9 +67,11 @@ export function DiagnosticsConsole() {
     const current = safeStorage.getItem('imsc_force_mock_supabase') === 'true';
     if (current) {
       safeStorage.removeItem('imsc_force_mock_supabase');
+      safeStorage.removeItem('imsc_manual_mock_supabase');
       addDebugLog('Debug System', `Switched Database to LIVE Mode. Reconnecting...`, 'info');
     } else {
       safeStorage.setItem('imsc_force_mock_supabase', 'true');
+      safeStorage.setItem('imsc_manual_mock_supabase', 'true');
       addDebugLog('Debug System', `Switched Database to OFFLINE Mock Sandbox.`, 'warn');
     }
     window.location.reload();

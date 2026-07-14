@@ -3,6 +3,19 @@ import { safeStorage } from './safeStorage';
 import { DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY } from './supabase-defaults';
 import { addDebugLog } from './debug';
 
+// Run a one-time healing check on startup to release users whose browsers got stuck in automatic mock mode
+try {
+  if (safeStorage.getItem('imsc_force_mock_supabase_healed') !== 'true') {
+    // If the mock flag is active but NOT manually overridden, clear it to attempt a fresh connection
+    if (safeStorage.getItem('imsc_force_mock_supabase') === 'true' && safeStorage.getItem('imsc_manual_mock_supabase') !== 'true') {
+      safeStorage.removeItem('imsc_force_mock_supabase');
+    }
+    safeStorage.setItem('imsc_force_mock_supabase_healed', 'true');
+  }
+} catch (e) {
+  console.warn("Could not perform supabase client startup healing:", e);
+}
+
 // Read configuration from browser local storage OR environment OR code-level defaults
 let rawSupabaseUrl = 
   safeStorage.getItem('imsc_custom_supabase_url') || 
@@ -522,9 +535,8 @@ const forceFallbackToMock = (reason: string) => {
   addDebugLog('Database Failover', `Connection issue detected: "${reason}". Automatically routing database queries to Offline Mock Sandbox.`, 'error');
   if (!useMock) {
     console.warn(`[Supabase Auto-Healer] Connection issue detected: ${reason}. Dynamically routing database queries to the Offline Mock Sandbox to prevent application crash.`);
-    try {
-      safeStorage.setItem('imsc_force_mock_supabase', 'true');
-    } catch (e) {}
+    // Note: We intentionally DO NOT persist the 'imsc_force_mock_supabase' key to localStorage during automated session failover.
+    // This allows page-refreshing or reconnecting to try the live database again naturally, instead of locking users into offline mode.
     useMock = true;
     try {
       window.dispatchEvent(new CustomEvent('supabase-failover', { detail: { reason } }));
@@ -539,11 +551,61 @@ function makeSelfHealingClient(actual: any, mock: any): any {
         return Reflect.get(mock, prop, mock);
       }
 
+      // Intercept 'then' property access to catch errors when the query is executed
+      if (prop === 'then') {
+        return function(onfulfilled: any, onrejected: any) {
+          try {
+            const realThen = Reflect.get(actual, 'then', actual);
+            if (typeof realThen !== 'function') {
+              if (mock && typeof mock.then === 'function') {
+                return mock.then(onfulfilled, onrejected);
+              }
+              const val = onfulfilled ? onfulfilled(actual) : actual;
+              return Promise.resolve(val);
+            }
+            
+            const promise = realThen.call(actual);
+            return promise.then(
+              (resolved: any) => {
+                if (resolved && resolved.error) {
+                  const errMsg = String(resolved.error.message || resolved.error);
+                  forceFallbackToMock(errMsg);
+                  if (mock && typeof mock.then === 'function') {
+                    return mock.then(onfulfilled, onrejected);
+                  }
+                }
+                return onfulfilled ? onfulfilled(resolved) : resolved;
+              },
+              (rejectedErr: any) => {
+                const errMsg = String(rejectedErr?.message || rejectedErr);
+                forceFallbackToMock(errMsg);
+                if (mock && typeof mock.then === 'function') {
+                  return mock.then(onfulfilled, onrejected);
+                }
+                if (onrejected) return onrejected(rejectedErr);
+                throw rejectedErr;
+              }
+            );
+          } catch (err) {
+            const errMsg = String(err instanceof Error ? err.message : err);
+            forceFallbackToMock(errMsg);
+            if (mock && typeof mock.then === 'function') {
+              return mock.then(onfulfilled, onrejected);
+            }
+            throw err;
+          }
+        };
+      }
+
       let value;
       try {
-        value = Reflect.get(actual, prop, actual);
+        value = actual ? Reflect.get(actual, prop, actual) : undefined;
       } catch (err) {
         forceFallbackToMock(err instanceof Error ? err.message : String(err));
+        return Reflect.get(mock, prop, mock);
+      }
+
+      if (value === undefined) {
         return Reflect.get(mock, prop, mock);
       }
 
@@ -551,39 +613,6 @@ function makeSelfHealingClient(actual: any, mock: any): any {
         return function(this: any, ...args: any[]) {
           try {
             const result = value.apply(this === receiver ? actual : this, args);
-            
-            if (result instanceof Promise) {
-              return result.then(
-                (resolved) => {
-                  if (resolved && resolved.error) {
-                    const errMsg = String(resolved.error.message || resolved.error);
-                    if (
-                      errMsg.includes('fetch') || 
-                      errMsg.includes('Network') || 
-                      errMsg.includes('failed') || 
-                      errMsg.includes('connection') ||
-                      errMsg.includes('TypeError')
-                    ) {
-                      forceFallbackToMock(errMsg);
-                      const mockFunc = Reflect.get(mock, prop, mock);
-                      if (typeof mockFunc === 'function') {
-                        return mockFunc.apply(mock, args);
-                      }
-                    }
-                  }
-                  return resolved;
-                },
-                (rejectedErr) => {
-                  const errMsg = String(rejectedErr?.message || rejectedErr);
-                  forceFallbackToMock(errMsg);
-                  const mockFunc = Reflect.get(mock, prop, mock);
-                  if (typeof mockFunc === 'function') {
-                    return mockFunc.apply(mock, args);
-                  }
-                  throw rejectedErr;
-                }
-              );
-            }
             
             if (result && typeof result === 'object') {
               const mockChain = Reflect.get(mock, prop, mock)?.apply(mock, args) || result;

@@ -71,22 +71,34 @@ export default function AdminApplications() {
     let unsubscribeFirestore: (() => void) | null = null;
     let supabaseChannel: any = null;
 
-    if (isSupabaseConfigured) {
-      const fetchAppsFromSupabase = async () => {
-        try {
-          const { data, error } = await supabase
-            .from('applications')
-            .select('*')
-            .order('appliedDate', { ascending: false });
-          if (error) throw error;
-          setApps(data || []);
-        } catch (err) {
-          console.error("Error fetching applications from Supabase:", err);
-        } finally {
-          setLoading(false);
-        }
-      };
+    const fetchAppsFromSupabase = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('applications')
+          .select('*')
+          .order('appliedDate', { ascending: false });
+        if (error) throw error;
+        setApps(data || []);
+      } catch (err) {
+        console.error("Error fetching applications from Supabase:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
+    const handleMockChange = (e: any) => {
+      if (e.detail?.table === 'applications') {
+        if (isSupabaseConfigured) {
+          fetchAppsFromSupabase();
+        }
+      }
+    };
+
+    try {
+      window.addEventListener('supabase-mock-change', handleMockChange);
+    } catch (e) {}
+
+    if (isSupabaseConfigured) {
       fetchAppsFromSupabase();
 
       // Subscribe to real-time changes on applications table
@@ -119,6 +131,9 @@ export default function AdminApplications() {
 
     return () => {
       if (unsubscribeFirestore) unsubscribeFirestore();
+      try {
+        window.removeEventListener('supabase-mock-change', handleMockChange);
+      } catch (e) {}
       if (supabaseChannel) {
         supabase.removeChannel(supabaseChannel).catch((err: any) => {
           console.warn("Error removing supabase channel:", err);
@@ -267,6 +282,9 @@ export default function AdminApplications() {
           isSimulated: emailResult.isSimulated
         });
 
+        // Synchronously update the application state in the UI so it shows 'approved' immediately
+        setApps(prevApps => prevApps.map(a => a.id === app.id ? { ...a, status: 'approved', approvedDate: new Date().toISOString() } : a));
+
       } catch (error) {
         console.error("Approval error:", error);
         alert("Failed to approve application.");
@@ -332,6 +350,9 @@ export default function AdminApplications() {
           status: "delivered"
         });
 
+        // Synchronously update the application state in the UI so it shows 'rejected' immediately
+        setApps(prevApps => prevApps.map(a => a.id === app.id ? { ...a, status: 'rejected' } : a));
+
         alert("Application Rejected! Notification sent and automated email logged.");
       } catch (error) {
         console.error("Rejection error:", error);
@@ -349,6 +370,9 @@ export default function AdminApplications() {
       }
       const firestoreDocId = app.id;
       await deleteDoc(doc(db, "applications", firestoreDocId));
+
+      // Synchronously update the application state in the UI so it's removed immediately
+      setApps(prevApps => prevApps.filter(a => a.id !== app.id));
     }
   };
 
