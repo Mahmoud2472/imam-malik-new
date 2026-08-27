@@ -459,7 +459,7 @@ export default function AdmissionPage() {
     
     // Choose the configured state key or env key or a default public test key fallback
     const activeKey = paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_322d4bde836a684b28f791049b8c3997742c8985';
-    const directLink = `https://paystack.shop/pay/mxrl-hceiv`;
+    const directLink = `https://paystack.shop/pay/njvkcjper`;
 
     // Scenario A: Use Integrated Popup (Always try inline Pop.setup first if the js.paystack.co inline.js is loaded)
     if ((window as any).PaystackPop) {
@@ -1774,7 +1774,7 @@ export default function AdmissionPage() {
                               <p className="text-center text-[11px] text-slate-500">
                                 Having issues with the popup?{" "}
                                 <a 
-                                  href="https://paystack.shop/pay/mxrl-hceiv"
+                                  href="https://paystack.shop/pay/njvkcjper"
                                   target="_blank" 
                                   rel="noopener noreferrer"
                                   onClick={() => setOpenedPaymentTab(true)}
@@ -1786,7 +1786,7 @@ export default function AdmissionPage() {
                             </div>
                           ) : (
                             (() => {
-                              const payLink = "https://paystack.shop/pay/mxrl-hceiv";
+                              const payLink = "https://paystack.shop/pay/njvkcjper";
                               return (
                                 <a 
                                   href={payLink}

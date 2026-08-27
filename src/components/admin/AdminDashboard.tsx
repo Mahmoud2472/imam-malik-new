@@ -17,6 +17,7 @@ import { collection, query, orderBy, onSnapshot, updateDoc, doc, limit } from 'f
 import AdminOverview from './AdminOverview';
 import AdminStudents from './AdminStudents';
 import AdminApplications from './AdminApplications';
+import AdminApplicantsUpload from './AdminApplicantsUpload';
 import AdminPayments from './AdminPayments';
 import AdminConfig from './AdminConfig';
 import AdminAnnouncements from './AdminAnnouncements';
@@ -65,6 +66,7 @@ export default function AdminDashboard() {
 
   const menuItems = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/admin' },
+    { name: 'Upload Applicants (Excel)', icon: FileSpreadsheet, path: '/admin/upload-applicants' },
     { name: 'Applications', icon: UserPlus, path: '/admin/applications' },
     { name: 'Students', icon: Users, path: '/admin/students' },
     { name: 'Payments', icon: CreditCard, path: '/admin/payments' },
@@ -275,6 +277,7 @@ export default function AdminDashboard() {
         <div className="p-8 overflow-y-auto flex-grow bg-slate-50">
           <Routes>
             <Route index element={<AdminOverview />} />
+            <Route path="upload-applicants" element={<AdminApplicantsUpload />} />
             <Route path="applications" element={<AdminApplications />} />
             <Route path="students" element={<AdminStudents />} />
             <Route path="payments" element={<AdminPayments />} />

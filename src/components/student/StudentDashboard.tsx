@@ -4,7 +4,8 @@ import {
   LayoutDashboard, User, BookOpen, CreditCard, 
   Download, LogOut, Menu, X, Landmark, FileText,
   Calendar, Award, GraduationCap, Printer, Loader2,
-  Camera, Upload, AlertCircle, CheckCircle2
+  Camera, Upload, AlertCircle, CheckCircle2, ExternalLink,
+  Copy, Check, Sparkles, ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { signOut } from 'firebase/auth';
@@ -254,56 +255,155 @@ function StudentOverview({ application }: { application: any }) {
     };
   }, [user]);
 
+  const CLASSES = [
+    { id: 'jss1', name: 'JSS 1' },
+    { id: 'jss2', name: 'JSS 2' },
+    { id: 'jss3', name: 'JSS 3' },
+    { id: 'ss1', name: 'SS 1' },
+    { id: 'ss2', name: 'SS 2' },
+    { id: 'ss3', name: 'SS 3' },
+  ];
+
+  const candidateName =
+    application?.name ||
+    application?.firstName
+      ? `${application.firstName || ''} ${application.lastName || ''}`.trim()
+      : userData?.displayName || 'Approved Applicant';
+
+  const candidateExamNo =
+    application?.examNumber ||
+    userData?.examNumber ||
+    application?.id ||
+    userData?.studentId ||
+    'IMSC/2026/001';
+
+  const candidateClass =
+    application?.targetClass ||
+    application?.targetClassId ||
+    userData?.targetClass ||
+    'JSS 1';
+
+  const candidateScore =
+    application?.entranceScore ||
+    application?.score ||
+    userData?.entranceScore ||
+    null;
+
+  const candidateSchool =
+    application?.schoolName ||
+    application?.previousSchool ||
+    application?.primarySchool ||
+    userData?.schoolName ||
+    null;
+
+  const fallbackApplication = {
+    id: candidateExamNo,
+    name: candidateName,
+    firstName: application?.firstName || candidateName.split(' ')[0] || 'Candidate',
+    lastName: application?.lastName || candidateName.split(' ').slice(1).join(' ') || '',
+    examNumber: candidateExamNo,
+    targetClassId: candidateClass,
+    targetClass: candidateClass,
+    entranceScore: candidateScore,
+    score: candidateScore,
+    schoolName: candidateSchool,
+    previousSchool: candidateSchool,
+    status: 'approved',
+    appliedDate: application?.appliedDate || new Date().toISOString()
+  };
+
+  const displayApplication = application ? { ...fallbackApplication, ...application } : fallbackApplication;
+
   const downloadAdmissionLetterPDF = async () => {
     const doc = new jsPDF();
     
     // Header
     doc.setFillColor(5, 46, 22); // emerald-950
-    doc.rect(0, 0, 210, 40, 'F');
+    doc.rect(0, 0, 210, 42, 'F');
     
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(22);
+    doc.setFontSize(20);
     doc.setFont('helvetica', 'bold');
-    doc.text('IMAM MALIK SCIENCE & TAHFIZ COLLEGE', 105, 20, { align: 'center' });
+    doc.text('IMAM MALIK SCIENCE & TAHFIZ COLLEGE', 105, 18, { align: 'center' });
     
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Karefa Road Tudun Wada Dankadai, Kano State | Tel: 07011748311', 105, 28, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text('OFFICIAL PROVISIONAL ADMISSION OFFER', 105, 36, { align: 'center' });
+    
+    // Document Meta
+    doc.setTextColor(50, 50, 50);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text('Karefa Road Tudun Wada Dankadai, Kano State | 07011748311', 105, 30, { align: 'center' });
     
-    // Title
+    const dateStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.text(`Date: ${dateStr}`, 20, 52);
+    doc.text(`Exam / Reg No: ${candidateExamNo}`, 20, 58);
+    doc.text(`Session: 2026/2027 Session`, 130, 52);
+    doc.text(`Status: APPROVED`, 130, 58);
+    
+    // Salutation
     doc.setTextColor(0, 0, 0);
-    doc.setFontSize(18);
+    doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
-    doc.text('ADMISSION OFFER LETTER', 105, 60, { align: 'center' });
+    doc.text(`Dear ${candidateName},`, 20, 72);
     
-    // Content
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'normal');
-    
-    const date = new Date().toLocaleDateString();
-    doc.text(`Date: ${date}`, 20, 80);
-    doc.text(`Application ID: ${displayApplication.id.toUpperCase()}`, 20, 88);
-    
-    doc.text(`Dear ${displayApplication.firstName} ${displayApplication.lastName},`, 20, 105);
-    
-    const body = `We are pleased to inform you that your application for admission into Imam Malik Science & Tahfiz College has been reviewed and APPROVED. You have been offered provisional admission for the 2026/2027 Academic Session.`;
-    
+    const body = `We are pleased to formally inform you that following your performance in the entrance examination and screening exercise, you have been OFFERED PROVISIONAL ADMISSION into Imam Malik Science & Tahfiz College, Kano for the 2026/2027 Academic Session.`;
     const splitBody = doc.splitTextToSize(body, 170);
-    doc.text(splitBody, 20, 115);
-    
-    doc.setFont('helvetica', 'bold');
-    doc.text('Admission Details:', 20, 140);
+    doc.setFontSize(10.5);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Class: ${(displayApplication.targetClassId || '').toUpperCase()}`, 30, 150);
-    doc.text(`Session: 2026/2027`, 30, 158);
+    doc.text(splitBody, 20, 80);
     
-    const instructions = `You are required to proceed to the school premises for physical verification and registration within two weeks of this offer. Please bring along original copies of your credentials and two passport photographs.`;
+    // Placement Box
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(20, 96, 170, 42, 3, 3, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(5, 46, 22);
+    doc.text('CANDIDATE ADMISSION & PLACEMENT RECORD', 25, 104);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(60, 60, 60);
+    doc.text(`Assigned Class:`, 25, 114);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${candidateClass.toUpperCase()}`, 65, 114);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Entrance Exam Score:`, 25, 122);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${candidateScore ? candidateScore + ' / 100 (Passed)' : 'Passed'}`, 65, 122);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Previous School:`, 25, 130);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${candidateSchool || 'Not Specified'}`, 65, 130);
+
+    // Fee Schedule & Directives
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.text('Registration & Acceptance Fee Requirements:', 20, 148);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.text('To accept this provisional offer and secure your enrollment, proceed with registration:', 20, 155);
+    doc.text('• Registration Fee: N12,000', 25, 162);
+    doc.text('• Development Levy: N3,000', 25, 168);
+    doc.setFont('helvetica', 'bold');
+    doc.text('• Total Payable: N15,000 (Payable via Student Portal or School Paystack)', 25, 174);
+
+    doc.setFont('helvetica', 'normal');
+    const instructions = `You are required to complete your registration payment and bring along original copies of your credentials, birth certificate, and two passport photographs for physical verification within two weeks of this offer.`;
     const splitInstructions = doc.splitTextToSize(instructions, 170);
-    doc.text(splitInstructions, 20, 180);
+    doc.text(splitInstructions, 20, 185);
     
-    doc.text('Congratulations once again.', 20, 210);
+    doc.text('Congratulations on your admission.', 20, 204);
     
-    doc.text('Yours faithfully,', 20, 225);
+    doc.text('Yours faithfully,', 20, 215);
     try {
       const pngSignature = await new Promise<string>((resolve) => {
         const img = new Image();
@@ -322,79 +422,122 @@ function StudentOverview({ application }: { application: any }) {
         };
         img.onerror = () => resolve(MAHMOUD_ADAMU_SIGNATURE);
       });
-      doc.addImage(pngSignature, 'PNG', 20, 228, 35, 15);
+      doc.addImage(pngSignature, 'PNG', 20, 218, 35, 14);
     } catch (e) {
       console.warn("Signature addition failed in PDF:", e);
     }
     doc.setFont('helvetica', 'bold');
-    doc.text('Mahmoud Adamu', 20, 250);
+    doc.text('Mahmoud Adamu', 20, 240);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text('Secretary, Governing Board', 20, 255);
-    doc.text('Imam Malik Science & Tahfiz College', 20, 260);
+    doc.setFontSize(9);
+    doc.text('Secretary, Governing Board', 20, 245);
+    doc.text('Imam Malik Science & Tahfiz College Kano', 20, 250);
     
     // Embedded Verification QR Code
     try {
-      const qrDataUrl = await QRCode.toDataURL(`VERIFY-IMSC-LETTER-${displayApplication.id}`);
-      doc.addImage(qrDataUrl, 'PNG', 160, 212, 30, 30);
+      const qrDataUrl = await QRCode.toDataURL(`VERIFY-IMSC-OFFER-${candidateExamNo}`);
+      doc.addImage(qrDataUrl, 'PNG', 155, 212, 32, 32);
       doc.setFontSize(7);
-      doc.setTextColor(150, 150, 150);
-      doc.text("Verify Admission Offer", 175, 245, { align: 'center' });
+      doc.setTextColor(130, 130, 130);
+      doc.text("Scan to Verify Offer", 171, 248, { align: 'center' });
     } catch (e) {
       console.warn("QR code generation failed:", e);
     }
 
-    // Footer decoration
-    doc.setDrawColor(245, 158, 11); // amber-500
+    // Gold Footer decoration
+    doc.setDrawColor(245, 158, 11);
     doc.setLineWidth(2);
-    doc.line(20, 265, 190, 265);
+    doc.line(20, 260, 190, 260);
 
-    doc.save(`Admission_Letter_${displayApplication.lastName}.pdf`);
+    doc.save(`Admission_Offer_Letter_${candidateName.replace(/\s+/g, '_')}.pdf`);
   };
-
-  const CLASSES = [
-    { id: 'jss1', name: 'JSS 1' },
-    { id: 'jss2', name: 'JSS 2' },
-    { id: 'jss3', name: 'JSS 3' },
-    { id: 'ss1', name: 'SS 1' },
-    { id: 'ss2', name: 'SS 2' },
-    { id: 'ss3', name: 'SS 3' },
-  ];
-
-  const fallbackApplication = {
-    id: application?.id || userData?.studentId || user?.uid?.slice(0, 10).toUpperCase() || 'IMSC-2026-ADM',
-    firstName: application?.firstName || userData?.displayName?.split(' ')[0] || 'Approved',
-    lastName: application?.lastName || userData?.displayName?.split(' ').slice(1).join(' ') || 'Applicant',
-    targetClassId: application?.targetClassId || userData?.targetClass || 'ss2',
-    status: 'approved',
-    appliedDate: application?.appliedDate || new Date().toISOString()
-  };
-
-  const displayApplication = application || fallbackApplication;
 
   return (
     <div className="space-y-8">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="md:col-span-2 space-y-8">
-          <div className="glass-card p-8 flex items-center gap-6 school-gradient text-white">
-            <div className="w-24 h-24 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-4xl font-bold border border-white/10 overflow-hidden shrink-0">
+          {/* Hero Banner */}
+          <div className="glass-card p-8 flex flex-col sm:flex-row items-center gap-6 school-gradient text-white">
+            <div className="w-24 h-24 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-4xl font-bold border border-white/10 overflow-hidden shrink-0 shadow-inner">
               {userData?.photoUrl ? (
                 <img src={userData.photoUrl} alt="avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               ) : (
-                userData?.displayName?.charAt(0)
+                candidateName.charAt(0)
               )}
             </div>
-            <div className="flex-grow">
+            <div className="flex-grow text-center sm:text-left">
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-emerald-300 text-xs font-bold uppercase tracking-widest mb-1">Student Transcript</p>
-                  <h2 className="text-2xl font-bold">{userData?.displayName}</h2>
-                  <div className="flex gap-4 mt-2">
-                    <span className="text-sm font-medium opacity-80">ID: IMSC/2026/04{userData?.studentId?.slice(0,3)}</span>
-                    <span className="text-sm font-medium opacity-80 uppercase">Class: {userData?.targetClass || 'SS 2'}</span>
+                  <p className="text-emerald-300 text-xs font-bold uppercase tracking-widest mb-1">Candidate & Student Portal</p>
+                  <h2 className="text-2xl font-black">{candidateName}</h2>
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 mt-2">
+                    <span className="text-xs font-mono bg-emerald-900/60 px-3 py-1 rounded-lg border border-emerald-400/30 text-emerald-200">
+                      Exam No: <strong>{candidateExamNo}</strong>
+                    </span>
+                    <span className="text-xs font-bold bg-amber-500/30 px-3 py-1 rounded-lg text-amber-200 uppercase">
+                      Class: {candidateClass.toUpperCase()}
+                    </span>
+                    {candidateScore && (
+                      <span className="text-xs font-bold bg-white/20 px-3 py-1 rounded-lg text-white">
+                        Score: {candidateScore} Marks
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* New Student Registration & Development Fee Directive Card */}
+          <div className="glass-card p-6 border-l-4 border-emerald-600 bg-white shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <span className="inline-block px-2.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase rounded-md tracking-wider mb-1">
+                  2026/2027 Admission Directive
+                </span>
+                <h3 className="text-base font-black text-emerald-950 flex items-center gap-2">
+                  <CreditCard className="text-emerald-600" size={20} />
+                  Registration & Development Fee Payment
+                </h3>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Payable</span>
+                <span className="text-xl font-black text-emerald-950">₦15,000.00</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              All newly admitted candidates are required to make registration and development levy payments to confirm admission and proceed with screening.
+            </p>
+
+            {/* Fee items breakdown */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
+                <div>
+                  <span className="font-bold text-slate-800 block">Registration Fee</span>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">New Student Acceptance</span>
+                </div>
+                <span className="font-black text-emerald-950 text-sm">₦12,000.00</span>
+              </div>
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
+                <div>
+                  <span className="font-bold text-slate-800 block">Development Fee</span>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">College Infrastructure Levy</span>
+                </div>
+                <span className="font-black text-emerald-950 text-sm">₦3,000.00</span>
+              </div>
+            </div>
+
+            {/* Paystack Payment Links Buttons */}
+            <div className="pt-2">
+              <a
+                href="https://paystack.shop/pay/njvkcjper"
+                target="_blank"
+                rel="noreferrer"
+                className="w-full bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-black uppercase tracking-wider py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all hover:scale-[1.01]"
+              >
+                <ExternalLink size={16} /> Pay Online via Official Paystack (₦12,000 / ₦3,000)
+              </a>
             </div>
           </div>
 
@@ -404,24 +547,24 @@ function StudentOverview({ application }: { application: any }) {
               <GraduationCap className="text-amber-500" size={18} /> Official Admission Documents
             </h3>
             <p className="text-xs text-slate-500">
-              Your application has been approved! Below, you can view, print or download your official **Admission Letter** and your registered **Admission Application Slip** for physical screening and files submission.
+              Your provisional admission is ready! You can view your full **Admission Letter**, download the official PDF transcript with authorized board signature, or print your completed **Application Slip**.
             </p>
-            <div className="flex flex-wrap gap-4 pt-2">
+            <div className="flex flex-wrap gap-3 pt-2">
               <button 
                 onClick={() => setShowLetter(true)}
-                className="px-4 py-2 bg-emerald-900 hover:bg-emerald-850 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-sm"
+                className="px-4 py-2.5 bg-emerald-950 hover:bg-emerald-900 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-sm"
               >
                 <FileText size={16} /> View Admission Letter
               </button>
               <button 
                 onClick={downloadAdmissionLetterPDF}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-sm hover:scale-[1.02]"
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-sm hover:scale-[1.02]"
               >
                 <Download size={16} /> Download Admission Letter (PDF)
               </button>
               <button 
                 onClick={() => setShowPrintSlip(true)}
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-sm"
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer"
               >
                 <Printer size={16} /> Print Application Slip
               </button>
@@ -430,17 +573,21 @@ function StudentOverview({ application }: { application: any }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
              <div className="glass-card p-6 border-l-4 border-emerald-600">
-               <h4 className="text-xs font-bold text-slate-400 uppercase mb-4">Academic Standing</h4>
+               <h4 className="text-xs font-bold text-slate-400 uppercase mb-4">Entrance Exam Standing</h4>
                <div className="flex items-end gap-2">
-                 <span className="text-3xl font-bold text-emerald-950">A-</span>
-                 <span className="text-xs text-emerald-600 font-bold mb-1 opacity-60">Avg: 78.4%</span>
+                 <span className="text-3xl font-bold text-emerald-950">
+                   {candidateScore ? `${candidateScore}` : 'Passed'}
+                 </span>
+                 <span className="text-xs text-emerald-600 font-bold mb-1 opacity-60">
+                   {candidateScore ? 'Entrance Score / 100' : 'Status: Eligible for Enrollment'}
+                 </span>
                </div>
              </div>
              <div className="glass-card p-6 border-l-4 border-amber-500">
-               <h4 className="text-xs font-bold text-slate-400 uppercase mb-4">Fee Status</h4>
-               <div className="flex items-end gap-2 text-amber-600">
-                 <span className="text-lg font-bold">₦0.00 Owed</span>
-                 <span className="text-[10px] font-black uppercase mb-1 opacity-60">(Clear)</span>
+               <h4 className="text-xs font-bold text-slate-400 uppercase mb-4">Registration Fee</h4>
+               <div className="flex items-end gap-2 text-amber-700">
+                 <span className="text-lg font-black">₦12,000 + ₦3,000</span>
+                 <span className="text-[10px] font-black uppercase mb-1 opacity-75">(Reg + Dev)</span>
                </div>
              </div>
           </div>
@@ -964,9 +1111,15 @@ function StudentResults() {
 
 function StudentFees() {
   const { userData, user } = useAuth();
+  const studentName = userData?.displayName || user?.displayName || 'Student';
+  const examNo = userData?.examNumber || userData?.id || 'IMSC/2026/001';
+  const assignedClass = userData?.targetClass || (userData?.gender === 'female' ? 'JSS 1B' : 'JSS 1A');
+
   const payments = [
-    { title: 'Admission & Prospectus Fee', amount: 1000, date: 'Mar 12, 2026', method: 'Online' },
-    { title: '1st Term Tuition', amount: 12000, date: 'Mar 14, 2026', method: 'Bank Transfer' },
+    { title: 'New Student Registration & 1st Term Tuition', amount: 12000, term: '1st Term', session: '2026/2027', category: 'Termly Tuition', date: 'Admission 2026/2027', method: 'Paystack Online', status: 'Mandatory / Due' },
+    { title: 'College Development Levy (3-Year Study Period)', amount: 3000, term: 'One-Time', session: '2026/2027 - 2028/2029', category: 'Development Fee (Once for 3 Yrs)', date: 'Admission 2026/2027', method: 'Paystack Online', status: 'Mandatory / Due' },
+    { title: '2nd Term Tuition Fee', amount: 12000, term: '2nd Term', session: '2026/2027', category: 'Termly Tuition', date: 'Term 2 2026/2027', method: 'Paystack Online', status: 'Upcoming' },
+    { title: '3rd Term Tuition Fee', amount: 12000, term: '3rd Term', session: '2026/2027', category: 'Termly Tuition', date: 'Term 3 2026/2027', method: 'Paystack Online', status: 'Upcoming' },
   ];
 
   const downloadReceipt = async (p: any) => {
@@ -981,99 +1134,325 @@ function StudentFees() {
     doc.setFont("helvetica", "bold");
     doc.text("IMAM MALIK SCIENCE & TAHFIZ COLLEGE", 105, 20, { align: 'center' });
     
-    doc.setFontSize(12);
+    doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
-    doc.text("OFFICIAL PAYMENT RECEIPT", 105, 30, { align: 'center' });
+    doc.text("OFFICIAL PAYMENT RECEIPT & INVOICE", 105, 30, { align: 'center' });
 
     // Receipt Info
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(10);
-    const receiptNum = `REC-${p.title.toUpperCase().replace(/\s+/g, '-')}-${Math.floor(Math.random() * 899999 + 100000)}`;
-    doc.text(`Receipt No: ${receiptNum}`, 20, 55);
-    doc.text(`Date: ${p.date}`, 150, 55);
+    const receiptNum = `REC-${p.title.toUpperCase().replace(/[^a-zA-Z0-9]/g, '-').slice(0, 15)}-${Math.floor(Math.random() * 899999 + 100000)}`;
+    doc.text(`Receipt / Inv No: ${receiptNum}`, 20, 55);
+    doc.text(`Date: ${p.date}`, 145, 55);
 
     // Main Content Box
     doc.setDrawColor(241, 245, 249);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(20, 65, 170, 80, 5, 5, 'FD');
+    doc.roundedRect(20, 65, 170, 95, 5, 5, 'FD');
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text("Transaction Details", 30, 80);
+    doc.text("Student & Transaction Details", 30, 80);
     
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    doc.text("Payer:", 30, 95);
-    doc.text(`${userData?.displayName || user?.displayName || 'Student'} (${user?.email || 'N/A'})`, 80, 95);
-    
-    doc.text("Description:", 30, 105);
-    doc.text(p.title, 80, 105);
-    
-    doc.text("Amount Paid:", 30, 115);
+    doc.text("Payer Name:", 30, 95);
     doc.setFont("helvetica", "bold");
-    doc.text(formatCurrency(p.amount), 80, 115);
+    doc.text(`${studentName}`, 80, 95);
     
     doc.setFont("helvetica", "normal");
-    doc.text("Payment Mode:", 30, 125);
-    doc.text(p.method, 80, 125);
+    doc.text("Exam / Reg No:", 30, 105);
+    doc.setFont("helvetica", "bold");
+    doc.text(`${examNo}`, 80, 105);
 
-    // Add security verification QR Code (right-aligned in transaction card)
+    doc.setFont("helvetica", "normal");
+    doc.text("Assigned Class:", 30, 115);
+    doc.setFont("helvetica", "bold");
+    doc.text(`${assignedClass} (${assignedClass.includes('1A') ? 'Male' : 'Female'} Section)`, 80, 115);
+
+    doc.setFont("helvetica", "normal");
+    doc.text("Fee Description:", 30, 125);
+    doc.text(`${p.title} (${p.category})`, 80, 125);
+    
+    doc.text("Amount Payable:", 30, 135);
+    doc.setFont("helvetica", "bold");
+    doc.text(formatCurrency(p.amount), 80, 135);
+    
+    doc.setFont("helvetica", "normal");
+    doc.text("Payment Gateway:", 30, 145);
+    doc.text("Paystack (paystack.shop/pay/njvkcjper)", 80, 145);
+
+    // Add security verification QR Code
     try {
-      const qrDataUrl = await QRCode.toDataURL(`VERIFY-PAYMENT-${p.title}-${p.amount}-${p.date}-${user?.uid || 'GUEST'}`);
-      doc.addImage(qrDataUrl, 'PNG', 145, 75, 35, 35);
+      const qrDataUrl = await QRCode.toDataURL(`VERIFY-IMSC-PAYMENT-${receiptNum}-${p.amount}-${examNo}`);
+      doc.addImage(qrDataUrl, 'PNG', 145, 80, 35, 35);
       doc.setFontSize(7);
       doc.setTextColor(150, 150, 150);
-      doc.text("Scan to Verify", 162.5, 112, { align: 'center' });
+      doc.text("Scan to Verify", 162.5, 118, { align: 'center' });
     } catch (e) {
       console.warn("QR code generation failed:", e);
     }
 
+    // Signature stamp
+    try {
+      const pngSignature = await new Promise<string>((resolve) => {
+        const img = new Image();
+        img.src = MAHMOUD_ADAMU_SIGNATURE;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 200;
+          canvas.height = 100;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, 200, 100);
+            resolve(canvas.toDataURL('image/png'));
+          } else {
+            resolve(MAHMOUD_ADAMU_SIGNATURE);
+          }
+        };
+        img.onerror = () => resolve(MAHMOUD_ADAMU_SIGNATURE);
+      });
+      doc.addImage(pngSignature, 'PNG', 20, 168, 30, 12);
+    } catch (e) {}
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    doc.text("Mahmoud Adamu", 20, 185);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text("Secretary, Governing Board", 20, 190);
+
     // Footer
     doc.setTextColor(148, 163, 184);
     doc.setFontSize(8);
-    doc.text("This is an official computer-generated receipt. No signature required.", 105, 160, { align: 'center' });
-    doc.text("© 2026 Imam Malik Science & Tahfiz College", 105, 165, { align: 'center' });
+    doc.text("This is an official computer-generated receipt from Imam Malik Science & Tahfiz College Kano.", 105, 205, { align: 'center' });
 
     doc.save(`Receipt_${p.title.replace(/\s+/g, '_')}.pdf`);
   };
 
+  const downloadFullFinancialStatement = async () => {
+    const doc = new jsPDF() as any;
+
+    // Header
+    doc.setFillColor(5, 46, 22); // Emerald-950
+    doc.rect(0, 0, 210, 42, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20);
+    doc.setFont("helvetica", "bold");
+    doc.text("IMAM MALIK SCIENCE & TAHFIZ COLLEGE", 105, 18, { align: 'center' });
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text("Karefa Road Tudun Wada Dankadai, Kano State | Tel: 07011748311", 105, 27, { align: 'center' });
+    doc.setFont("helvetica", "bold");
+    doc.text("OFFICIAL STUDENT FINANCIAL HISTORY & STATEMENT OF ACCOUNT", 105, 36, { align: 'center' });
+
+    // Meta Section
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+
+    const dateStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    doc.text(`Generated Date: ${dateStr}`, 20, 52);
+    doc.text(`Student Name: ${studentName}`, 20, 58);
+    doc.text(`Exam / Reg No: ${examNo}`, 20, 64);
+    doc.text(`Assigned Class: ${assignedClass} (${assignedClass.includes('1A') ? 'Male Section' : 'Female Section'})`, 130, 52);
+    doc.text(`Academic Session: 2026/2027`, 130, 58);
+    doc.text(`Gateway: Paystack Exclusive`, 130, 64);
+
+    // Summary Box
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(20, 72, 170, 28, 3, 3, 'FD');
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(5, 46, 22);
+    doc.text("FEE STRUCTURE POLICY SUMMARY:", 25, 80);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(60, 60, 60);
+    doc.text("• Termly Tuition: N12,000 per term (1st, 2nd, and 3rd Term)", 25, 87);
+    doc.text("• Development Fee: N3,000 (Paid ONCE throughout the 3-year study period)", 25, 93);
+    doc.text("• Initial New Student Entry: N15,000 (1st Term Tuition + 3-Yr Development Levy)", 110, 87);
+    doc.text("• Official Payment Channel: https://paystack.shop/pay/njvkcjper", 110, 93);
+
+    // Schedule Table
+    const tableData = [
+      ['New Intake Reg. + 1st Term', '1st Term 2026/2027', 'N12,000', 'Termly Tuition', 'Mandatory / Active'],
+      ['College Development Levy', '3-Yr Study (2026-2029)', 'N3,000', 'Once in 3 Years', 'Mandatory / Active'],
+      ['2nd Term Tuition Fee', '2nd Term 2026/2027', 'N12,000', 'Termly Tuition', 'Upcoming Term'],
+      ['3rd Term Tuition Fee', '3rd Term 2026/2027', 'N12,000', 'Termly Tuition', 'Upcoming Term'],
+    ];
+
+    doc.autoTable({
+      startY: 106,
+      head: [['Fee Description', 'Academic Period', 'Amount', 'Fee Type', 'Status']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [5, 46, 22], fontSize: 9, fontStyle: 'bold' },
+      styles: { fontSize: 8.5, cellPadding: 4 }
+    });
+
+    let finalY = (doc as any).lastAutoTable.finalY + 12;
+
+    // QR Code & Verification
+    try {
+      const qrDataUrl = await QRCode.toDataURL(`VERIFY-STATEMENT-${examNo}-${studentName}`);
+      doc.addImage(qrDataUrl, 'PNG', 155, finalY, 30, 30);
+      doc.setFontSize(7);
+      doc.setTextColor(140, 140, 140);
+      doc.text("Scan to Verify Account", 170, finalY + 33, { align: 'center' });
+    } catch (e) {}
+
+    // Signature
+    try {
+      const pngSignature = await new Promise<string>((resolve) => {
+        const img = new Image();
+        img.src = MAHMOUD_ADAMU_SIGNATURE;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 200;
+          canvas.height = 100;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, 200, 100);
+            resolve(canvas.toDataURL('image/png'));
+          } else {
+            resolve(MAHMOUD_ADAMU_SIGNATURE);
+          }
+        };
+        img.onerror = () => resolve(MAHMOUD_ADAMU_SIGNATURE);
+      });
+      doc.addImage(pngSignature, 'PNG', 20, finalY, 32, 13);
+    } catch (e) {}
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    doc.text("Mahmoud Adamu", 20, finalY + 18);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text("Secretary, Governing Board", 20, finalY + 23);
+    doc.text("Imam Malik Science & Tahfiz College Kano", 20, finalY + 28);
+
+    doc.setDrawColor(245, 158, 11);
+    doc.setLineWidth(1.5);
+    doc.line(20, finalY + 36, 190, finalY + 36);
+
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text("Official Financial Record • Only Paystack (paystack.shop/pay/njvkcjper) is authorized for online payments.", 105, finalY + 42, { align: 'center' });
+
+    doc.save(`Financial_History_${studentName.replace(/\s+/g, '_')}.pdf`);
+  };
+
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-         <div className="glass-card p-8 school-gradient text-white flex flex-col justify-between">
-           <div>
-             <h4 className="text-emerald-300 text-xs font-bold uppercase tracking-widest mb-4">Next Payment Due</h4>
-             <div className="text-4xl font-bold mb-2">₦12,000.00</div>
-             <p className="text-sm opacity-60">2nd Term Tuition Fee (2026/2027)</p>
-           </div>
-           <button 
-             onClick={() => window.open('https://paystack.shop/pay/njvkcjper', '_blank')}
-             className="w-full mt-8 bg-white text-emerald-950 py-3 rounded-xl font-bold hover:bg-emerald-50 transition-colors"
-           >
-             Pay Fees Now
-           </button>
-         </div>
+      {/* Top Banner with Paystack Link and Action */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="glass-card p-8 school-gradient text-white flex flex-col justify-between rounded-3xl shadow-lg">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <span className="px-2.5 py-0.5 bg-amber-400 text-emerald-950 text-[10px] font-black uppercase rounded-md tracking-wider">
+                Official Payment Gateway
+              </span>
+              <span className="text-[10px] font-bold text-emerald-200">
+                {assignedClass} ({assignedClass.includes('1A') ? 'Male' : 'Female'})
+              </span>
+            </div>
+            <h4 className="text-emerald-300 text-xs font-bold uppercase tracking-widest mb-1">New Student Registration</h4>
+            <div className="text-3xl font-black mb-1">₦15,000.00</div>
+            <p className="text-xs text-emerald-100 font-medium mb-3">
+              1st Term Tuition (₦12,000) + 3-Year Development Levy (₦3,000)
+            </p>
+            <div className="bg-emerald-900/60 p-3 rounded-xl border border-emerald-700/50 text-[11px] space-y-1 text-emerald-100">
+              <p className="font-bold text-amber-300">📌 Payment Rules:</p>
+              <p>• <strong>Tuition Fee:</strong> ₦12,000 termly (1st, 2nd, 3rd Term)</p>
+              <p>• <strong>Development Fee:</strong> ₦3,000 paid ONCE throughout the 3-year study period.</p>
+            </div>
+          </div>
+          
+          <div className="space-y-2 mt-6">
+            <a
+              href="https://paystack.shop/pay/njvkcjper"
+              target="_blank"
+              rel="noreferrer"
+              className="w-full bg-amber-500 hover:bg-amber-400 text-emerald-950 py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 shadow-md hover:scale-[1.01]"
+            >
+              <ExternalLink size={16} /> Pay via Paystack (njvkcjper)
+            </a>
+            <button
+              onClick={downloadFullFinancialStatement}
+              className="w-full bg-white/10 hover:bg-white/20 text-white py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 border border-white/20 cursor-pointer"
+            >
+              <Printer size={15} /> Print Full Financial History
+            </button>
+          </div>
+        </div>
 
-         <div className="md:col-span-2 glass-card p-8">
-           <h3 className="text-lg font-bold text-emerald-950 mb-6 flex items-center gap-2"><FileText size={20} className="text-amber-500" /> Payment History</h3>
-           <div className="space-y-4">
-             {payments.map((p, i) => (
-               <div key={i} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100 group">
-                 <div className="flex items-center gap-4">
-                   <button onClick={() => downloadReceipt(p)} className="flex items-center justify-center w-10 h-10 bg-emerald-100 text-emerald-700 rounded-full hover:bg-emerald-200 transition-colors cursor-pointer border-none outline-none"><Download size={18} /></button>
-                   <div>
-                     <h5 className="text-sm font-bold text-slate-800">{p.title}</h5>
-                     <p className="text-[10px] text-slate-400 font-bold uppercase">{p.date} • {p.method}</p>
-                   </div>
-                 </div>
-                 <div className="text-right">
-                   <div className="text-sm font-bold text-emerald-900">{formatCurrency(p.amount)}</div>
-                   <button onClick={() => downloadReceipt(p)} className="text-[10px] font-black uppercase text-amber-600 hover:text-amber-700 hover:underline cursor-pointer bg-transparent border-none outline-none">Download Receipt</button>
-                 </div>
-               </div>
-             ))}
-           </div>
-         </div>
+        <div className="lg:col-span-2 glass-card p-8 rounded-3xl bg-white shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-lg font-black text-emerald-950 flex items-center gap-2">
+                  <FileText size={20} className="text-amber-500" /> Fee Schedule & Financial History
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Candidate: <strong>{studentName}</strong> • Class: <strong>{assignedClass}</strong> • Exam No: <strong>{examNo}</strong>
+                </p>
+              </div>
+              <button
+                onClick={downloadFullFinancialStatement}
+                className="btn-primary text-xs font-black uppercase tracking-wider py-2.5 px-4 flex items-center gap-2 cursor-pointer shrink-0"
+              >
+                <Download size={15} /> Download Statement (PDF)
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {payments.map((p, i) => (
+                <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 group hover:border-emerald-200 transition-all gap-4">
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => downloadReceipt(p)} 
+                      className="flex items-center justify-center w-10 h-10 bg-emerald-100 text-emerald-800 rounded-xl hover:bg-emerald-200 transition-colors cursor-pointer border-none outline-none shrink-0 shadow-sm"
+                      title="Download Payment Slip"
+                    >
+                      <Download size={16} />
+                    </button>
+                    <div>
+                      <h5 className="text-xs sm:text-sm font-bold text-slate-800">{p.title}</h5>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        {p.session} • <span className="text-emerald-700">{p.category}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+                    <div className="text-left sm:text-right">
+                      <div className="text-sm font-black text-emerald-950">{formatCurrency(p.amount)}</div>
+                      <span className="text-[9px] font-bold uppercase text-slate-400">{p.status}</span>
+                    </div>
+                    <button 
+                      onClick={() => downloadReceipt(p)} 
+                      className="px-3 py-1.5 bg-white border border-slate-200 text-[10px] font-black uppercase text-amber-700 hover:bg-amber-50 rounded-lg cursor-pointer transition-colors shadow-2xs"
+                    >
+                      Slip
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <span className="font-medium text-[11px]">
+              🔒 Payments authorized via official Paystack channel: <code className="text-emerald-950 font-bold">paystack.shop/pay/njvkcjper</code>
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
