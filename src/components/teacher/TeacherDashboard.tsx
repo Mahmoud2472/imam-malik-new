@@ -75,21 +75,43 @@ export default function TeacherDashboard() {
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <aside className={cn(
-        "fixed inset-y-0 left-0 w-72 bg-emerald-950 text-white z-50 transition-transform lg:relative lg:translate-x-0",
+        "fixed inset-y-0 left-0 w-72 bg-emerald-950 text-white z-50 transition-transform lg:relative lg:translate-x-0 shadow-2xl lg:shadow-none",
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="h-full flex flex-col p-6">
-          <Link to="/" className="flex items-center gap-3 mb-10 px-2 hover:opacity-80 transition-opacity">
-            <div className="p-2 bg-amber-500 rounded-lg">
-              <BookOpen className="text-emerald-950" size={24} />
-            </div>
-            <div>
-              <h2 className="font-bold text-lg leading-tight text-white">Staff Portal</h2>
-              <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Imam Malik College</p>
-            </div>
-          </Link>
+          <div className="flex items-center justify-between mb-8 px-2">
+            <Link to="/" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+              <div className="p-2 bg-amber-500 rounded-lg shrink-0">
+                <BookOpen className="text-emerald-950" size={24} />
+              </div>
+              <div>
+                <h2 className="font-bold text-lg leading-tight text-white">Staff Portal</h2>
+                <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Imam Malik College</p>
+              </div>
+            </Link>
+            <button 
+              onClick={() => setSidebarOpen(false)}
+              className="lg:hidden p-1.5 text-emerald-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+              title="Close Menu"
+            >
+              <X size={20} />
+            </button>
+          </div>
 
           <nav className="flex-grow space-y-1">
             {menuItems.map((item) => (

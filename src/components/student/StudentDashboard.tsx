@@ -82,26 +82,53 @@ export default function StudentDashboard() {
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       <aside className={cn(
-        "fixed inset-y-0 left-0 w-72 bg-emerald-950 text-white z-50 transition-transform lg:relative lg:translate-x-0",
+        "fixed inset-y-0 left-0 w-72 bg-emerald-950 text-white z-50 transition-transform lg:relative lg:translate-x-0 shadow-2xl lg:shadow-none",
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="h-full flex flex-col p-6">
-          <Link to="/" className="flex items-center gap-3 mb-10 px-2 hover:opacity-80 transition-opacity">
-            <div className="p-2 bg-amber-500 rounded-lg">
-              <GraduationCap className="text-emerald-950" size={24} />
-            </div>
-            <div>
-              <h2 className="font-bold text-lg leading-tight">Student Portal</h2>
-              <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Imam Malik College</p>
-            </div>
-          </Link>
+          <div className="flex items-center justify-between mb-8 px-2">
+            <Link 
+              to="/" 
+              onClick={() => setSidebarOpen(false)} 
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+            >
+              <div className="p-2 bg-amber-500 rounded-lg shrink-0">
+                <GraduationCap className="text-emerald-950" size={24} />
+              </div>
+              <div>
+                <h2 className="font-bold text-lg leading-tight">Student Portal</h2>
+                <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Imam Malik College</p>
+              </div>
+            </Link>
+            <button 
+              onClick={() => setSidebarOpen(false)}
+              className="lg:hidden p-1.5 text-emerald-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+              title="Close Menu"
+            >
+              <X size={20} />
+            </button>
+          </div>
 
           <nav className="flex-grow space-y-1">
             {menuItems.map((item) => (
               <Link
                 key={item.name}
                 to={item.path}
+                onClick={() => setSidebarOpen(false)}
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 rounded-xl transition-all group",
                   location.pathname === item.path ? "bg-amber-500 text-emerald-950 font-bold" : "text-emerald-100/60 hover:bg-white/5 hover:text-white"
@@ -114,6 +141,7 @@ export default function StudentDashboard() {
             {/* Added Return Home Navigation Option */}
             <Link
               to="/"
+              onClick={() => setSidebarOpen(false)}
               className="flex items-center gap-3 px-4 py-3 rounded-xl text-emerald-100/60 hover:bg-white/5 hover:text-white transition-all group border border-dashed border-emerald-900/40 mt-4"
             >
               <Landmark size={20} className="text-emerald-100/40 group-hover:text-amber-500" />
@@ -122,7 +150,13 @@ export default function StudentDashboard() {
           </nav>
 
           <div className="pt-6 border-t border-emerald-900 text-center">
-             <button onClick={handleLogout} className="w-full flex items-center justify-center gap-3 px-4 py-3 text-red-300 hover:bg-red-500/10 rounded-xl transition-all font-medium">
+             <button 
+               onClick={() => {
+                 setSidebarOpen(false);
+                 handleLogout();
+               }} 
+               className="w-full flex items-center justify-center gap-3 px-4 py-3 text-red-300 hover:bg-red-500/10 rounded-xl transition-all font-medium cursor-pointer"
+             >
                <LogOut size={20} /> Logout
              </button>
           </div>
@@ -132,7 +166,13 @@ export default function StudentDashboard() {
       <main className="flex-grow flex flex-col overflow-hidden">
         <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
           <div className="flex items-center gap-4">
-             <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-slate-500"><Menu size={24} /></button>
+             <button 
+               onClick={() => setSidebarOpen(prev => !prev)} 
+               className="lg:hidden text-slate-600 hover:text-slate-900 p-2 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+               aria-label="Toggle menu"
+             >
+               {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
+             </button>
              <h3 className="font-bold text-slate-800">Assalamu Alaikum, {userData?.displayName?.split(' ')[0]}</h3>
           </div>
           
