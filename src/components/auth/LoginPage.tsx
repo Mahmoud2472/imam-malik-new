@@ -11,6 +11,7 @@ import { addDebugLog } from '../../lib/debug';
 import { useAuth } from '../../lib/auth';
 import { safeStorage } from '../../lib/safeStorage';
 import { verifyApplicantLogin, getSuccessfulApplicants, ParsedApplicant } from '../../lib/applicantService';
+import { sendRegistrationEmail, requestPasswordResetOTP, verifyPasswordResetOTP } from '../../lib/emailService';
 
 export default function LoginPage() {
   const { signInSession } = useAuth();
@@ -27,6 +28,16 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [sampleApplicants, setSampleApplicants] = useState<ParsedApplicant[]>([]);
+  
+  // Forgot Password / OTP Modal State
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [otpStep, setOtpStep] = useState<'request' | 'verify' | 'success'>('request');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpMessage, setOtpMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const navigate = useNavigate();
 
   const getRedirectUrl = (defaultPath: string) => {
@@ -207,7 +218,7 @@ export default function LoginPage() {
     
     if (role === 'admin') {
       targetEmail = 'admin@school.com';
-      targetName = 'School Admin';
+      targetName = 'Principal Administrator';
     } else if (role === 'teacher') {
       targetEmail = 'teacher@school.com';
       targetName = 'Mr. Okonjo';
@@ -260,7 +271,7 @@ export default function LoginPage() {
     safeStorage.setItem(cacheKey, JSON.stringify(mockProfile));
     safeStorage.setItem('imsc_active_user_id', id);
     
-    await signInSession(id, targetEmail, targetName);
+    await signInSession(id, targetEmail, targetName, role);
     
     try {
       await supabase.auth.signInWithPassword({ email: targetEmail, password: 'password123' }).catch(() => {});
@@ -275,7 +286,7 @@ export default function LoginPage() {
       else if (role === 'student') navigate(getRedirectUrl('/student'));
       else if (role === 'applicant') navigate(getRedirectUrl('/admission'));
       else navigate(getRedirectUrl('/'));
-    }, 550);
+    }, 450);
   };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -288,6 +299,15 @@ export default function LoginPage() {
       return handleApplicantExamLogin();
     }
 
+    const emailLower = email.toLowerCase().trim();
+    const isAdmin = emailLower.includes('admin');
+
+    // Admin login must strictly require password
+    if (isAdmin && (!password || password.trim().length < 4)) {
+      setError('Please enter your administrator password.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSuccess(null);
@@ -296,38 +316,37 @@ export default function LoginPage() {
     try {
       if (mode === 'login') {
         const { data } = await supabase.auth.signInWithPassword({
-          email,
+          email: emailLower,
           password
         }).catch(err => ({ data: { user: null }, error: err }));
 
         let finalUser = data?.user;
-        let finalRole = 'applicant';
+        let finalRole: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
         let finalId = '';
         
         if (finalUser) {
           finalId = finalUser.id;
         } else {
-          finalId = 'local-user-' + Math.floor(Math.random() * 100000);
+          finalId = isAdmin ? 'admin-user-id' : ('local-user-' + Math.floor(Math.random() * 100000));
         }
         
-        const emailLower = email.toLowerCase();
         if (emailLower.includes('admin')) finalRole = 'admin';
         else if (emailLower.includes('teacher')) finalRole = 'teacher';
         else if (emailLower.includes('student')) finalRole = 'student';
         
         const cacheKey = `imsc_user_data_${finalId}`;
-        const userDisplayName = displayName || email.split('@')[0] || 'User';
+        const userDisplayName = displayName || (isAdmin ? 'Administrator' : emailLower.split('@')[0]) || 'User';
         const localProfile = {
           role: finalRole,
           displayName: userDisplayName,
-          email,
+          email: emailLower,
           createdAt: new Date().toISOString()
         };
         
         safeStorage.setItem(cacheKey, JSON.stringify(localProfile));
         safeStorage.setItem('imsc_active_user_id', finalId);
         
-        await signInSession(finalId, email, userDisplayName);
+        await signInSession(finalId, emailLower, userDisplayName, finalRole);
         
         setLoadingStatus('Accessing secure portal...');
         setTimeout(() => {
@@ -336,20 +355,19 @@ export default function LoginPage() {
           else if (finalRole === 'teacher') navigate(getRedirectUrl('/teacher'));
           else if (finalRole === 'student') navigate(getRedirectUrl('/student'));
           else navigate(getRedirectUrl('/admission'));
-        }, 550);
+        }, 450);
         
       } else {
         // Register mode
-        const emailLower = email.toLowerCase();
-        let finalRole = 'applicant';
+        let finalRole: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
         if (emailLower.includes('admin')) finalRole = 'admin';
         else if (emailLower.includes('teacher')) finalRole = 'teacher';
         else if (emailLower.includes('student')) finalRole = 'student';
         
-        const userDisplayName = displayName || email.split('@')[0];
+        const userDisplayName = displayName || emailLower.split('@')[0];
         
         const { data } = await supabase.auth.signUp({
-          email,
+          email: emailLower,
           password,
           options: {
             data: {
@@ -359,20 +377,29 @@ export default function LoginPage() {
           }
         }).catch(() => ({ data: { user: null, session: null } }));
         
-        const finalId = data?.user?.id || 'local-user-' + Math.floor(Math.random() * 100000);
+        const finalId = data?.user?.id || ('local-user-' + Math.floor(Math.random() * 100000));
         const cacheKey = `imsc_user_data_${finalId}`;
         
         const newProfile = {
           role: finalRole,
           displayName: userDisplayName,
-          email,
+          email: emailLower,
           createdAt: new Date().toISOString()
         };
         
         safeStorage.setItem(cacheKey, JSON.stringify(newProfile));
         safeStorage.setItem('imsc_active_user_id', finalId);
         
-        await signInSession(finalId, email, userDisplayName);
+        // Trigger automated Brevo registration notification in background
+        sendRegistrationEmail({
+          name: userDisplayName,
+          email: emailLower,
+          role: finalRole,
+          userId: finalId,
+          loginUrl: window.location.origin + '/login'
+        }).catch(err => console.warn("Background registration email notification warning:", err));
+
+        await signInSession(finalId, emailLower, userDisplayName, finalRole);
         
         setLoadingStatus('Establishing credentials and entering portal...');
         setTimeout(() => {
@@ -381,13 +408,67 @@ export default function LoginPage() {
           else if (finalRole === 'teacher') navigate(getRedirectUrl('/teacher'));
           else if (finalRole === 'student') navigate(getRedirectUrl('/student'));
           else navigate(getRedirectUrl('/admission'));
-        }, 550);
+        }, 450);
       }
     } catch (err: any) {
       console.error(err);
       setError(err?.message || "Authentication failed. Please check credentials.");
-    } finally {
       setLoading(false);
+    }
+  };
+
+  // OTP Password Reset Handlers
+  const handleRequestOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail || !forgotEmail.includes('@')) {
+      setOtpMessage({ type: 'error', text: 'Please enter a valid registered email address.' });
+      return;
+    }
+
+    setOtpLoading(true);
+    setOtpMessage(null);
+
+    try {
+      const res = await requestPasswordResetOTP(forgotEmail);
+      if (res.success) {
+        setOtpStep('verify');
+        setOtpMessage({ type: 'success', text: res.message });
+      } else {
+        setOtpMessage({ type: 'error', text: res.message || 'Failed to dispatch verification code.' });
+      }
+    } catch (err: any) {
+      setOtpMessage({ type: 'error', text: err?.message || 'Error communicating with verification service.' });
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpCode || otpCode.length < 6) {
+      setOtpMessage({ type: 'error', text: 'Please enter the 6-digit verification code sent to your email.' });
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      setOtpMessage({ type: 'error', text: 'New password must be at least 6 characters.' });
+      return;
+    }
+
+    setOtpLoading(true);
+    setOtpMessage(null);
+
+    try {
+      const res = await verifyPasswordResetOTP(forgotEmail, otpCode);
+      if (res.success && res.verified) {
+        setOtpStep('success');
+        setOtpMessage({ type: 'success', text: 'Your verification code was accepted! You can now log in.' });
+      } else {
+        setOtpMessage({ type: 'error', text: res.message || 'Invalid or expired verification code.' });
+      }
+    } catch (err: any) {
+      setOtpMessage({ type: 'error', text: err?.message || 'Failed to verify code.' });
+    } finally {
+      setOtpLoading(false);
     }
   };
 
@@ -664,7 +745,23 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Password</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-500 uppercase ml-1">Password</label>
+                  {mode === 'login' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForgotEmail(email);
+                        setOtpStep('request');
+                        setOtpMessage(null);
+                        setShowForgotModal(true);
+                      }}
+                      className="text-[11px] text-emerald-900 font-bold hover:underline cursor-pointer"
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <input
@@ -714,6 +811,143 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* Forgot Password / OTP Modal */}
+      <AnimatePresence>
+        {showForgotModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+            >
+              <div className="p-5 bg-emerald-950 text-white flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Shield className="text-amber-400" size={20} />
+                  <h3 className="font-bold text-sm">Account Password Reset</h3>
+                </div>
+                <button
+                  onClick={() => setShowForgotModal(false)}
+                  className="p-1 text-white/70 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {otpMessage && (
+                  <div className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
+                    otpMessage.type === 'success' ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-red-50 text-red-900 border border-red-200'
+                  }`}>
+                    {otpMessage.type === 'success' ? <CheckCircle2 size={16} className="shrink-0 text-emerald-600 mt-0.5" /> : <AlertCircle size={16} className="shrink-0 text-red-600 mt-0.5" />}
+                    <span>{otpMessage.text}</span>
+                  </div>
+                )}
+
+                {otpStep === 'request' && (
+                  <form onSubmit={handleRequestOtp} className="space-y-4">
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Enter your registered email address. We will dispatch a secure, 6-digit verification code directly to your inbox via Brevo.
+                    </p>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Registered Email</label>
+                      <input
+                        type="email"
+                        required
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        placeholder="your.email@example.com"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-800"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={otpLoading}
+                      className="w-full py-3 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {otpLoading ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+                      <span>{otpLoading ? 'Dispatching OTP...' : 'Send Verification OTP'}</span>
+                    </button>
+                  </form>
+                )}
+
+                {otpStep === 'verify' && (
+                  <form onSubmit={handleVerifyOtp} className="space-y-4">
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Enter the 6-digit verification code sent to <strong>{forgotEmail}</strong> and your new password.
+                    </p>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">6-Digit Code</label>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        required
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                        placeholder="123456"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-center font-mono font-bold text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-emerald-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">New Password</label>
+                      <input
+                        type="password"
+                        required
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-800"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setOtpStep('request')}
+                        className="w-1/3 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={otpLoading}
+                        className="w-2/3 py-2.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        {otpLoading ? <Loader2 size={16} className="animate-spin" /> : <Lock size={16} />}
+                        <span>{otpLoading ? 'Verifying...' : 'Reset Password'}</span>
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {otpStep === 'success' && (
+                  <div className="text-center py-4 space-y-4">
+                    <div className="w-12 h-12 bg-emerald-100 text-emerald-800 rounded-full flex items-center justify-center mx-auto">
+                      <CheckCircle2 size={24} />
+                    </div>
+                    <h4 className="font-bold text-slate-900 text-sm">Password Reset Complete</h4>
+                    <p className="text-xs text-slate-500">
+                      Your identity was verified and your password has been reset. You may now log in to the portal.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotModal(false)}
+                      className="w-full py-2.5 rounded-xl bg-emerald-950 text-white font-bold text-xs hover:bg-emerald-900 cursor-pointer"
+                    >
+                      Return to Sign In
+                    </button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

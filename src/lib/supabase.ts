@@ -110,9 +110,9 @@ const generateMockSupabaseClient = () => {
     
     if (table === 'fees' && rows.length === 0) {
       rows = [
-        { id: 'fee-1', name: 'Admission & Prospectus Fee', amount: 1000, description: 'Mandatory registration fee for new applicants' },
-        { id: 'fee-2', name: '1st Term School Fees', amount: 35000, description: 'Tuition and learning materials' },
-        { id: 'fee-3', name: 'School Uniform Pack', amount: 10000, description: 'Custom college uniform and sportswear' }
+        { id: 'fee-1', name: '1st Term School Fees (Tuition)', amount: 12000, description: 'Termly tuition fee for 1st, 2nd, and 3rd term' },
+        { id: 'fee-2', name: 'College Development Levy (3-Year)', amount: 3000, description: 'Payable ONCE throughout the entire 3-year study period' },
+        { id: 'fee-3', name: 'Admission & Prospectus Fee', amount: 1000, description: 'Mandatory registration fee for new applicants' }
       ];
       saveMockData('fees', rows);
     }
@@ -362,18 +362,26 @@ const generateMockSupabaseClient = () => {
           const res = await getLocalStorageData(table, filters, orderField, orderDirection, limitCount);
           return { data: res[0] || null, error: res.length ? null : { message: 'Row not found' } };
         },
-        then: (onfulfilled: any) => {
+        then: (onfulfilled?: any, onrejected?: any) => {
           return getLocalStorageData(table, filters, orderField, orderDirection, limitCount)
             .then(res => ({ data: res, error: null }))
-            .then(onfulfilled);
+            .then(onfulfilled, onrejected);
+        },
+        catch: (onrejected?: any) => {
+          return getLocalStorageData(table, filters, orderField, orderDirection, limitCount)
+            .then(res => ({ data: res, error: null }))
+            .catch(onrejected);
+        },
+        finally: (onfinally?: any) => {
+          return getLocalStorageData(table, filters, orderField, orderDirection, limitCount)
+            .then(res => ({ data: res, error: null }))
+            .finally(onfinally);
         }
       };
 
-      (chain as any).then = (onfulfilled: any) => {
-        return getLocalStorageData(table, filters, orderField, orderDirection, limitCount)
-          .then(res => ({ data: res, error: null }))
-          .then(onfulfilled);
-      };
+      (chain as any).then = chain.then;
+      (chain as any).catch = chain.catch;
+      (chain as any).finally = chain.finally;
 
       return {
         ...chain,
@@ -386,17 +394,37 @@ const generateMockSupabaseClient = () => {
                   const res = await saveLocalStorageData(table, payloadArray);
                   return { data: res[0], error: null };
                 },
-                then: (onfulfilled: any) => {
+                then: (onfulfilled?: any, onrejected?: any) => {
                   return saveLocalStorageData(table, payloadArray)
                     .then(res => ({ data: res, error: null }))
-                    .then(onfulfilled);
+                    .then(onfulfilled, onrejected);
+                },
+                catch: (onrejected?: any) => {
+                  return saveLocalStorageData(table, payloadArray)
+                    .then(res => ({ data: res, error: null }))
+                    .catch(onrejected);
+                },
+                finally: (onfinally?: any) => {
+                  return saveLocalStorageData(table, payloadArray)
+                    .then(res => ({ data: res, error: null }))
+                    .finally(onfinally);
                 }
               };
             },
-            then: (onfulfilled: any) => {
+            then: (onfulfilled?: any, onrejected?: any) => {
               return saveLocalStorageData(table, payloadArray)
                 .then(res => ({ data: res, error: null }))
-                .then(onfulfilled);
+                .then(onfulfilled, onrejected);
+            },
+            catch: (onrejected?: any) => {
+              return saveLocalStorageData(table, payloadArray)
+                .then(res => ({ data: res, error: null }))
+                .catch(onrejected);
+            },
+            finally: (onfinally?: any) => {
+              return saveLocalStorageData(table, payloadArray)
+                .then(res => ({ data: res, error: null }))
+                .finally(onfinally);
             }
           };
           return insertChain as any;
@@ -410,17 +438,37 @@ const generateMockSupabaseClient = () => {
                   const res = await saveLocalStorageData(table, payloadArray);
                   return { data: res[0], error: null };
                 },
-                then: (onfulfilled: any) => {
+                then: (onfulfilled?: any, onrejected?: any) => {
                   return saveLocalStorageData(table, payloadArray)
                     .then(res => ({ data: res, error: null }))
-                    .then(onfulfilled);
+                    .then(onfulfilled, onrejected);
+                },
+                catch: (onrejected?: any) => {
+                  return saveLocalStorageData(table, payloadArray)
+                    .then(res => ({ data: res, error: null }))
+                    .catch(onrejected);
+                },
+                finally: (onfinally?: any) => {
+                  return saveLocalStorageData(table, payloadArray)
+                    .then(res => ({ data: res, error: null }))
+                    .finally(onfinally);
                 }
               };
             },
-            then: (onfulfilled: any) => {
+            then: (onfulfilled?: any, onrejected?: any) => {
               return saveLocalStorageData(table, payloadArray)
                 .then(res => ({ data: res, error: null }))
-                .then(onfulfilled);
+                .then(onfulfilled, onrejected);
+            },
+            catch: (onrejected?: any) => {
+              return saveLocalStorageData(table, payloadArray)
+                .then(res => ({ data: res, error: null }))
+                .catch(onrejected);
+            },
+            finally: (onfinally?: any) => {
+              return saveLocalStorageData(table, payloadArray)
+                .then(res => ({ data: res, error: null }))
+                .finally(onfinally);
             }
           };
           return upsertChain as any;
@@ -431,10 +479,24 @@ const generateMockSupabaseClient = () => {
               filters.push({ colName, op: '==', val });
               return updateChain;
             },
-            then: (onfulfilled: any) => {
+            neq: (colName: string, val: any) => {
+              filters.push({ colName, op: '!=', val });
+              return updateChain;
+            },
+            then: (onfulfilled?: any, onrejected?: any) => {
               return updateLocalStorageData(table, filters, updates)
                 .then(res => ({ data: res, error: null }))
-                .then(onfulfilled);
+                .then(onfulfilled, onrejected);
+            },
+            catch: (onrejected?: any) => {
+              return updateLocalStorageData(table, filters, updates)
+                .then(res => ({ data: res, error: null }))
+                .catch(onrejected);
+            },
+            finally: (onfinally?: any) => {
+              return updateLocalStorageData(table, filters, updates)
+                .then(res => ({ data: res, error: null }))
+                .finally(onfinally);
             }
           };
           return updateChain as any;
@@ -445,10 +507,24 @@ const generateMockSupabaseClient = () => {
               filters.push({ colName, op: '==', val });
               return deleteChain;
             },
-            then: (onfulfilled: any) => {
+            neq: (colName: string, val: any) => {
+              filters.push({ colName, op: '!=', val });
+              return deleteChain;
+            },
+            then: (onfulfilled?: any, onrejected?: any) => {
               return deleteLocalStorageData(table, filters)
                 .then(res => ({ data: [], error: res.error }))
-                .then(onfulfilled);
+                .then(onfulfilled, onrejected);
+            },
+            catch: (onrejected?: any) => {
+              return deleteLocalStorageData(table, filters)
+                .then(res => ({ data: [], error: res.error }))
+                .catch(onrejected);
+            },
+            finally: (onfinally?: any) => {
+              return deleteLocalStorageData(table, filters)
+                .then(res => ({ data: [], error: res.error }))
+                .finally(onfinally);
             }
           };
           return deleteChain as any;
@@ -555,16 +631,16 @@ function makeSelfHealingClient(actual: any, mock: any): any {
       if (prop === 'then') {
         return function(onfulfilled: any, onrejected: any) {
           try {
-            const realThen = Reflect.get(actual, 'then', actual);
+            const realThen = actual ? Reflect.get(actual, 'then', actual) : undefined;
             if (typeof realThen !== 'function') {
               if (mock && typeof mock.then === 'function') {
                 return mock.then(onfulfilled, onrejected);
               }
-              const val = onfulfilled ? onfulfilled(actual) : actual;
+              const val = onfulfilled ? onfulfilled(actual || mock) : (actual || mock);
               return Promise.resolve(val);
             }
             
-            const promise = realThen.call(actual);
+            const promise = Promise.resolve(realThen.call(actual));
             return promise.then(
               (resolved: any) => {
                 if (resolved && resolved.error) {
@@ -592,8 +668,37 @@ function makeSelfHealingClient(actual: any, mock: any): any {
             if (mock && typeof mock.then === 'function') {
               return mock.then(onfulfilled, onrejected);
             }
+            if (onrejected) return onrejected(err);
             throw err;
           }
+        };
+      }
+
+      // Intercept 'catch' property access
+      if (prop === 'catch') {
+        return function(onrejected: any) {
+          const thenFn = receiver.then;
+          if (typeof thenFn === 'function') {
+            return thenFn.call(receiver, undefined, onrejected);
+          }
+          if (mock && typeof mock.catch === 'function') {
+            return mock.catch(onrejected);
+          }
+          return Promise.resolve(actual || mock).catch(onrejected);
+        };
+      }
+
+      // Intercept 'finally' property access
+      if (prop === 'finally') {
+        return function(onfinally: any) {
+          const thenFn = receiver.then;
+          if (typeof thenFn === 'function') {
+            return Promise.resolve(receiver).finally(onfinally);
+          }
+          if (mock && typeof mock.finally === 'function') {
+            return mock.finally(onfinally);
+          }
+          return Promise.resolve(actual || mock).finally(onfinally);
         };
       }
 

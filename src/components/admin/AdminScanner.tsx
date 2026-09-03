@@ -154,10 +154,22 @@ export default function AdminScanner() {
     await stopScanning(); // Pause scanning instantly upon scan match
     playBeep('success');
 
-    // Parse scanned code ID
-    let finalId = data;
-    if (data.startsWith('VERIFY-IMSC-')) {
-      finalId = data.replace('VERIFY-IMSC-', '');
+    // Parse scanned code ID or extract exam / application number from multi-line text
+    let finalId = data.trim();
+
+    // Check if it's the rich plain-text QR format
+    const examNoMatch = data.match(/Exam\s*\/\s*Reg\s*No:\s*([^\n\r]+)/i);
+    const securityCodeMatch = data.match(/Security Code:\s*IMSC-OFFER-([^\n\r]+)/i);
+    const offerMatch = data.match(/VERIFY-IMSC-OFFER-([^\n\r]+)/i);
+
+    if (examNoMatch && examNoMatch[1]) {
+      finalId = examNoMatch[1].trim();
+    } else if (securityCodeMatch && securityCodeMatch[1]) {
+      finalId = securityCodeMatch[1].trim();
+    } else if (offerMatch && offerMatch[1]) {
+      finalId = offerMatch[1].trim();
+    } else if (data.startsWith('VERIFY-IMSC-')) {
+      finalId = data.replace('VERIFY-IMSC-', '').trim();
     }
 
     lookupRecord(finalId);
@@ -185,7 +197,18 @@ export default function AdminScanner() {
         return;
       }
 
-      // 2. Try looking up in applications where transactionId matches cleanId, or studentId search
+      // 2. Try looking up in applications where examNumber matches cleanId
+      const examAppsQuery = query(collection(db, 'applications'), where('examNumber', '==', cleanId));
+      const examAppsSnap = await getDocs(examAppsQuery);
+      if (!examAppsSnap.empty) {
+        const firstDoc = examAppsSnap.docs[0];
+        setVerifiedDoc({ id: firstDoc.id, ...firstDoc.data() });
+        setDocType('application');
+        setSearching(false);
+        return;
+      }
+
+      // 3. Try looking up in applications where transactionId matches cleanId
       const appsQuery = query(collection(db, 'applications'), where('transactionId', '==', cleanId));
       const appsSnap = await getDocs(appsQuery);
       if (!appsSnap.empty) {
@@ -196,7 +219,7 @@ export default function AdminScanner() {
         return;
       }
 
-      // 3. Try looking up in users collection by id or studentId
+      // 4. Try looking up in users collection by id or studentId or examNumber
       const userRef = doc(db, 'users', cleanId);
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
@@ -206,11 +229,22 @@ export default function AdminScanner() {
         return;
       }
 
-      // 4. Try looking up users collection by custom studentId query
+      // 5. Try looking up users collection by custom studentId query
       const userQuery = query(collection(db, 'users'), where('studentId', '==', cleanId));
       const usersSnap = await getDocs(userQuery);
       if (!usersSnap.empty) {
         const firstDoc = usersSnap.docs[0];
+        setVerifiedDoc({ id: firstDoc.id, ...firstDoc.data() });
+        setDocType('user');
+        setSearching(false);
+        return;
+      }
+
+      // 6. Try looking up users collection by examNumber
+      const userExamQuery = query(collection(db, 'users'), where('examNumber', '==', cleanId));
+      const usersExamSnap = await getDocs(userExamQuery);
+      if (!usersExamSnap.empty) {
+        const firstDoc = usersExamSnap.docs[0];
         setVerifiedDoc({ id: firstDoc.id, ...firstDoc.data() });
         setDocType('user');
         setSearching(false);

@@ -5,7 +5,7 @@ import { Menu, X, Landmark, GraduationCap, Phone, MapPin, Mail, ChevronRight, Ho
 import { cn } from '../../lib/utils';
 
 export default function PublicLayout() {
-  const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const location = useLocation();
 
@@ -36,7 +36,7 @@ export default function PublicLayout() {
       <div className="bg-emerald-950 text-emerald-50 py-2 hidden md:block">
         <div className="max-w-7xl mx-auto px-4 flex justify-between items-center text-xs font-medium">
           <div className="flex gap-6">
-            <span className="flex items-center gap-1.5"><Phone size={14} className="text-amber-500" /> 07011748311</span>
+            <span className="flex items-center gap-1.5"><Phone size={14} className="text-amber-500" /> 07011748311, 08032765759</span>
             <span className="flex items-center gap-1.5"><Mail size={14} className="text-amber-500" /> maitechitservices6@gmail.com</span>
           </div>
           <div className="flex gap-4">
@@ -156,7 +156,7 @@ export default function PublicLayout() {
               </li>
               <li className="flex gap-3 items-center">
                 <Phone size={18} className="text-amber-500 shrink-0" />
-                <span>07011748311</span>
+                <span>07011748311, 08032765759</span>
               </li>
               <li className="flex gap-3 items-center">
                 <Mail size={18} className="text-amber-500 shrink-0" />

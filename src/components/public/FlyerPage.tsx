@@ -107,7 +107,7 @@ Nurturing Faith & Scientific Excellence with integrated Quranic Memorization and
 5️⃣ Submit and download your Examination Slip. Keep it safe!
 
 📍 School Address: Karefa Road Tudun Wada Dankadai, Kano State
-📞 Phone: 07011748311
+📞 Phone: 07011748311, 08032765759
 ✉️ Email: maitechitservices6@gmail.com
 
 Share this opportunity with friends and family! Give your child the best foundation for academic and spiritual success. 🌟`;
@@ -397,7 +397,7 @@ Share this opportunity with friends and family! Give your child the best foundat
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="flex items-center gap-1 font-bold text-white">
-                    <Phone size={10} className="text-emerald-400" /> 07011748311
+                    <Phone size={10} className="text-emerald-400" /> 07011748311, 08032765759
                   </span>
                   <span className="hidden sm:inline text-white/20">|</span>
                   <span className="flex items-center gap-1 truncate max-w-[120px] sm:max-w-none">

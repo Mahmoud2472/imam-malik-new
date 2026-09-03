@@ -5,12 +5,13 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { 
   TrendingUp, Users, DollarSign, UserCheck, AlertCircle, 
   FileSpreadsheet, ExternalLink, RefreshCw, CheckCircle2, 
-  Activity, ArrowUpRight, Clock, ShieldCheck, FileText, Sparkles
+  Activity, ArrowUpRight, Clock, ShieldCheck, FileText, Sparkles, Download, Printer
 } from 'lucide-react';
 import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { formatCurrency, cn, formatDate } from '../../lib/utils';
 import AdminStatusDashboard from './AdminStatusDashboard';
+import BulkAdmissionLettersModal from './modals/BulkAdmissionLettersModal';
 
 const data = [
   { name: 'Jan', revenue: 4000, students: 240 },
@@ -31,6 +32,7 @@ export default function AdminOverview() {
   const [recentPayments, setRecentPayments] = useState<any[]>([]);
   const [recentApps, setRecentApps] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'all' | 'apps' | 'payments'>('all');
+  const [isBulkPdfModalOpen, setIsBulkPdfModalOpen] = useState(false);
 
   useEffect(() => {
     // Real-time stats listeners
@@ -89,11 +91,22 @@ export default function AdminOverview() {
     };
   }, []);
 
-  // Merge and sort both activities chronologically in real-time
-  const combinedActivities = [
-    ...recentApps,
-    ...recentPayments
-  ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  // Merge, deduplicate and sort both activities chronologically in real-time
+  const combinedActivities = React.useMemo(() => {
+    const all = [...recentApps, ...recentPayments];
+    const seen = new Set<string>();
+    const unique: any[] = [];
+    
+    all.forEach((item, idx) => {
+      const uniqueKey = `${item.type}_${item.id || idx}`;
+      if (!seen.has(uniqueKey)) {
+        seen.add(uniqueKey);
+        unique.push(item);
+      }
+    });
+
+    return unique.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [recentApps, recentPayments]);
 
   // Filter activities based on selection tab
   const filteredActivities = combinedActivities.filter(activity => {
@@ -135,6 +148,40 @@ export default function AdminOverview() {
       </div>
 
       <AdminStatusDashboard />
+
+      {/* Bulk Admission Letters Action Card */}
+      <motion.div 
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="p-5 bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 border border-amber-400/40 shadow-lg rounded-2xl text-emerald-950 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden"
+      >
+        <div className="relative z-10 flex items-start gap-4">
+          <div className="p-3 bg-emerald-950 text-amber-400 rounded-xl border border-amber-300/30 shrink-0 shadow-md">
+            <FileText size={24} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-black uppercase tracking-wider text-emerald-950">Official Bulk Admission Letters (1-Click PDF)</h4>
+              <span className="px-2 py-0.5 bg-emerald-950 text-amber-400 text-[10px] font-black uppercase rounded-full">
+                Manual Collection
+              </span>
+            </div>
+            <p className="text-xs text-emerald-950/90 leading-relaxed font-semibold mt-1 max-w-2xl">
+              Instantly generate and download a single, multi-page PDF containing official, signed provisional admission offer letters for all admitted candidates ready for batch printing.
+            </p>
+          </div>
+        </div>
+        <div className="relative z-10 flex items-center gap-2.5 shrink-0">
+          <button
+            onClick={() => setIsBulkPdfModalOpen(true)}
+            className="font-black text-xs uppercase tracking-wider bg-emerald-950 hover:bg-emerald-900 text-white px-5 py-3 rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer"
+          >
+            <Download size={14} className="text-amber-400" />
+            Generate All Letters (PDF)
+          </button>
+        </div>
+        <div className="absolute top-0 right-0 w-[200px] h-[200px] bg-white/10 rounded-full blur-[40px] -mr-16 -mt-16" />
+      </motion.div>
 
       {/* Google Sheets Backup Banner */}
       <motion.div 
@@ -250,7 +297,7 @@ export default function AdminOverview() {
             <AnimatePresence mode="popLayout">
               {filteredActivities.map((act, idx) => (
                 <motion.div
-                  key={act.id || idx}
+                  key={`${act.type || 'act'}-${act.id || idx}-${idx}`}
                   layout
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -314,6 +361,12 @@ export default function AdminOverview() {
           </button>
         </div>
       </div>
+
+      {/* Bulk Admission Letters Generator Modal */}
+      <BulkAdmissionLettersModal
+        isOpen={isBulkPdfModalOpen}
+        onClose={() => setIsBulkPdfModalOpen(false)}
+      />
     </div>
   );
 }

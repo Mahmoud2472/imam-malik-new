@@ -3,7 +3,7 @@ import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import { 
   LayoutDashboard, Users, UserCheck, CreditCard, 
   Settings, Bell, LogOut, Menu, X, Landmark, 
-  BookOpen, UserPlus, FileText, QrCode, FileSpreadsheet
+  BookOpen, UserPlus, FileText, QrCode, FileSpreadsheet, Mail
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { signOut } from 'firebase/auth';
@@ -23,6 +23,7 @@ import AdminConfig from './AdminConfig';
 import AdminAnnouncements from './AdminAnnouncements';
 import AdminScanner from './AdminScanner';
 import AdminSheets from './AdminSheets';
+import AdminEmails from './AdminEmails';
 
 export default function AdminDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -70,6 +71,7 @@ export default function AdminDashboard() {
     { name: 'Applications', icon: UserPlus, path: '/admin/applications' },
     { name: 'Students', icon: Users, path: '/admin/students' },
     { name: 'Payments', icon: CreditCard, path: '/admin/payments' },
+    { name: 'Email Notifications (Brevo)', icon: Mail, path: '/admin/emails' },
     { name: 'Verify QR Code', icon: QrCode, path: '/admin/verify' },
     { name: 'Google Sheets Sync', icon: FileSpreadsheet, path: '/admin/sheets' },
     { name: 'Academic Config', icon: Settings, path: '/admin/config' },
@@ -281,6 +283,7 @@ export default function AdminDashboard() {
             <Route path="applications" element={<AdminApplications />} />
             <Route path="students" element={<AdminStudents />} />
             <Route path="payments" element={<AdminPayments />} />
+            <Route path="emails" element={<AdminEmails />} />
             <Route path="verify" element={<AdminScanner />} />
             <Route path="sheets" element={<AdminSheets />} />
             <Route path="config" element={<AdminConfig />} />

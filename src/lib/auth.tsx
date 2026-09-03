@@ -12,9 +12,28 @@ export interface UserRoleData {
   studentId?: string;
   teacherId?: string;
   photoUrl?: string;
+  passportUrl?: string;
+  passportPhoto?: string;
+  phone?: string;
+  phoneNumber?: string;
+  gender?: string;
+  dob?: string;
+  dateOfBirth?: string;
+  stateOfOrigin?: string;
+  lga?: string;
+  address?: string;
+  guardianName?: string;
+  guardianPhone?: string;
+  guardianEmail?: string;
+  guardianRelationship?: string;
   hasPaidApplication?: boolean;
   admissionStatus?: 'pending' | 'approved' | 'rejected';
   targetClass?: string;
+  class?: string;
+  examNumber?: string;
+  entranceScore?: number;
+  schoolName?: string;
+  previousSchool?: string;
 }
 
 export interface CompactSupabaseUser {
@@ -33,6 +52,7 @@ interface AuthContextType {
   isStudent: boolean;
   isApplicant: boolean;
   refreshUserData: () => Promise<void>;
+  updateUserProfile: (newProfileData: Partial<UserRoleData>) => Promise<void>;
   signOut: () => Promise<void>;
   signInSession: (userId: string, email: string, displayName: string) => Promise<void>;
 }
@@ -56,98 +76,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         console.warn("Could not parse cached user data", e);
       }
+    } else {
+      const emailLower = email.toLowerCase();
+      let predictedRole: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
+      if (emailLower.includes('admin')) predictedRole = 'admin';
+      else if (emailLower.includes('teacher')) predictedRole = 'teacher';
+      else if (emailLower.includes('student')) predictedRole = 'student';
+      
+      const defaultProfile: UserRoleData = {
+        role: predictedRole,
+        displayName: email.split('@')[0] || 'User',
+        email
+      };
+      setUserData(defaultProfile);
+      safeStorage.setItem(cacheKey, JSON.stringify(defaultProfile));
     }
 
     try {
-      // Query both Supabase profile and Firestore user record in parallel to ensure up-to-date values
+      // Query both Supabase profile and Firestore user record in parallel with timeout safeguard
+      const timeoutPromise = new Promise<{ data: null; error: string }>((resolve) => 
+        setTimeout(() => resolve({ data: null, error: 'timeout' }), 2500)
+      );
+
       const [supabaseRes, firestoreSnap] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .single()
-          .catch(err => {
-            console.warn("Supabase profile fetch error:", err);
-            return { data: null, error: err };
-          }),
-        getDoc(doc(db, "users", userId)).catch(err => {
-          console.warn("Firestore user record fetch error:", err);
-          return null;
-        })
+        Promise.race([
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single()
+            .catch(err => ({ data: null, error: err })),
+          timeoutPromise
+        ]),
+        Promise.race([
+          getDoc(doc(db, "users", userId)).catch(() => null),
+          new Promise<null>((res) => setTimeout(() => res(null), 2500))
+        ])
       ]);
 
-      const profile = supabaseRes && 'data' in supabaseRes ? supabaseRes.data : null;
-      const firestoreUser = firestoreSnap && firestoreSnap.exists() ? firestoreSnap.data() : null;
+      const profile = supabaseRes && 'data' in supabaseRes ? (supabaseRes as any).data : null;
+      const firestoreUser = firestoreSnap && (firestoreSnap as any).exists && (firestoreSnap as any).exists() ? (firestoreSnap as any).data() : null;
 
       if (profile || firestoreUser) {
+        const photo = profile?.photoUrl || profile?.photo_url || firestoreUser?.photoUrl || firestoreUser?.passportUrl || firestoreUser?.passportPhoto || firestoreUser?.photoURL;
         const dataToSet: UserRoleData = {
-          role: (firestoreUser?.role || profile?.role || 'applicant') as any,
+          role: (firestoreUser?.role || profile?.role || (email.toLowerCase().includes('admin') ? 'admin' : 'applicant')) as any,
           displayName: profile?.displayName || profile?.display_name || firestoreUser?.displayName || email.split('@')[0],
           email: profile?.email || firestoreUser?.email || email,
           studentId: firestoreUser?.studentId || profile?.studentId || profile?.student_id,
           teacherId: firestoreUser?.teacherId || profile?.teacherId || profile?.teacher_id,
-          photoUrl: profile?.photoUrl || profile?.photo_url || firestoreUser?.photoUrl,
+          photoUrl: photo,
+          passportUrl: photo,
+          passportPhoto: photo,
+          phone: profile?.phone || profile?.phoneNumber || profile?.phone_number || firestoreUser?.phone || firestoreUser?.phoneNumber,
+          phoneNumber: profile?.phone || profile?.phoneNumber || profile?.phone_number || firestoreUser?.phone || firestoreUser?.phoneNumber,
+          gender: profile?.gender || firestoreUser?.gender,
+          dob: profile?.dob || profile?.dateOfBirth || profile?.date_of_birth || firestoreUser?.dob || firestoreUser?.dateOfBirth,
+          dateOfBirth: profile?.dob || profile?.dateOfBirth || profile?.date_of_birth || firestoreUser?.dob || firestoreUser?.dateOfBirth,
+          stateOfOrigin: profile?.stateOfOrigin || profile?.state_of_origin || firestoreUser?.stateOfOrigin,
+          lga: profile?.lga || firestoreUser?.lga,
+          address: profile?.address || firestoreUser?.address,
+          guardianName: profile?.guardianName || profile?.guardian_name || firestoreUser?.guardianName,
+          guardianPhone: profile?.guardianPhone || profile?.guardian_phone || firestoreUser?.guardianPhone,
+          guardianEmail: profile?.guardianEmail || profile?.guardian_email || firestoreUser?.guardianEmail,
+          guardianRelationship: profile?.guardianRelationship || profile?.guardian_relationship || firestoreUser?.guardianRelationship,
           hasPaidApplication: firestoreUser?.hasPaidApplication !== undefined ? firestoreUser.hasPaidApplication : (profile?.hasPaidApplication || profile?.has_paid_application),
           admissionStatus: (firestoreUser?.admissionStatus || profile?.admissionStatus || profile?.admission_status || 'pending') as any,
-          targetClass: firestoreUser?.targetClass || profile?.targetClass || profile?.target_class
+          targetClass: firestoreUser?.targetClass || firestoreUser?.class || profile?.targetClass || profile?.target_class,
+          class: firestoreUser?.targetClass || firestoreUser?.class || profile?.targetClass || profile?.target_class,
+          examNumber: firestoreUser?.examNumber || profile?.examNumber || profile?.exam_number
         };
         addDebugLog('Auth Service', `Database profile resolved. Verified Role: "${dataToSet.role}" | Status: "${dataToSet.admissionStatus}" | Name: "${dataToSet.displayName}"`, 'success');
         setUserData(dataToSet);
         safeStorage.setItem(cacheKey, JSON.stringify(dataToSet));
-      } else {
-        // Auto-provision if profile is missing in the database
-        const emailLower = email.toLowerCase();
-        let role: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
-        
-        if (emailLower.includes('admin')) {
-          role = 'admin';
-        } else if (emailLower.includes('teacher')) {
-          role = 'teacher';
-        } else if (emailLower.includes('student')) {
-          role = 'student';
-        }
-
-        addDebugLog('Auth Service', `No database profile record found for user. Auto-provisioning default role: "${role}"`, 'warn');
-
-        const defaultProfile: UserRoleData = {
-          role,
-          displayName: email.split('@')[0] || 'User',
-          email,
-          admissionStatus: 'pending'
-        };
-
-        // Suppress errors during offline mock mode
-        await supabase.from('profiles').insert({
-          id: userId,
-          email,
-          role,
-          displayName: defaultProfile.displayName,
-          admission_status: 'pending'
-        });
-
-        setUserData(defaultProfile);
-        safeStorage.setItem(cacheKey, JSON.stringify(defaultProfile));
       }
     } catch (err) {
-      addDebugLog('Auth Service', `Database profile check failed. Falling back to local cache or defaults. Error: ${err instanceof Error ? err.message : String(err)}`, 'warn');
-      if (!safeStorage.getItem(cacheKey)) {
-        const emailLower = email.toLowerCase();
-        let predictedRole: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
-        if (emailLower.includes('admin')) {
-          predictedRole = 'admin';
-        } else if (emailLower.includes('teacher')) {
-          predictedRole = 'teacher';
-        } else if (emailLower.includes('student')) {
-          predictedRole = 'student';
-        }
-
-        const fallbackUser: UserRoleData = {
-          role: predictedRole,
-          displayName: email.split('@')[0] || 'Offline User',
-          email
-        };
-        setUserData(fallbackUser);
-      }
+      addDebugLog('Auth Service', `Database profile check finished. Error: ${err instanceof Error ? err.message : String(err)}`, 'warn');
     }
   };
 
@@ -387,7 +391,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserData(null);
   };
 
-  const signInSession = async (userId: string, email: string, displayName: string) => {
+  const signInSession = async (userId: string, email: string, displayName: string, explicitRole?: 'admin' | 'teacher' | 'student' | 'applicant') => {
     addDebugLog('Auth Service', `Explicitly logging in session for ${email} (${userId})`, 'success');
     safeStorage.setItem('imsc_active_user_id', userId);
     const compatUser: CompactSupabaseUser = {
@@ -397,7 +401,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       displayName
     };
     setUser(compatUser);
-    await fetchProfile(userId, email);
+    
+    // Set immediate profile in memory so ProtectedRoute and components see it instantaneously
+    const cacheKey = `imsc_user_data_${userId}`;
+    const cached = safeStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        setUserData(JSON.parse(cached));
+      } catch (e) {}
+    } else {
+      const emailLower = email.toLowerCase();
+      let roleToUse: 'admin' | 'teacher' | 'student' | 'applicant' = explicitRole || 'applicant';
+      if (emailLower.includes('admin')) roleToUse = 'admin';
+      else if (emailLower.includes('teacher')) roleToUse = 'teacher';
+      else if (emailLower.includes('student')) roleToUse = 'student';
+      
+      const immediateProfile: UserRoleData = {
+        role: roleToUse,
+        displayName: displayName || email.split('@')[0] || 'User',
+        email
+      };
+      setUserData(immediateProfile);
+      safeStorage.setItem(cacheKey, JSON.stringify(immediateProfile));
+    }
+
+    // Refresh profile in background asynchronously
+    fetchProfile(userId, email).catch(err => {
+      console.warn("Background fetchProfile error:", err);
+    });
+  };
+
+  const updateUserProfile = async (newProfileData: Partial<UserRoleData>) => {
+    if (!user && !newProfileData) return;
+    const activeId = user?.id || (newProfileData as any).studentId || safeStorage.getItem('imsc_active_user_id') || 'active_user';
+    const cacheKey = `imsc_user_data_${activeId}`;
+
+    setUserData(prev => {
+      const merged = { ...(prev || ({} as UserRoleData)), ...newProfileData };
+      safeStorage.setItem(cacheKey, JSON.stringify(merged));
+      return merged;
+    });
   };
 
   const value = {
@@ -409,6 +452,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isStudent: userData?.role === 'student',
     isApplicant: userData?.role === 'applicant',
     refreshUserData,
+    updateUserProfile,
     signOut,
     signInSession
   };

@@ -1,8 +1,9 @@
-import React from 'react';
-import { Landmark, Download, Printer, Award, School, CheckCircle2, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Landmark, Download, Printer, Award, BookOpen, CheckCircle2, ShieldCheck, QrCode } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { formatDate, formatCurrency, MAHMOUD_ADAMU_SIGNATURE } from '../../lib/utils';
 import QRCode from 'qrcode';
+import { getAdmissionVerificationPayload } from '../../lib/admissionPdfService';
 
 interface AdmissionLetterProps {
   application: any;
@@ -16,109 +17,169 @@ export default function AdmissionLetter({ application }: AdmissionLetterProps) {
   const targetClass = application.targetClass || application.targetClassId || 'JSS 1';
   const entranceScore = application.entranceScore || application.score || null;
   const schoolName = application.schoolName || application.previousSchool || null;
+  const [displayQrUrl, setDisplayQrUrl] = useState<string>('');
+
+  const qrPayload = getAdmissionVerificationPayload({
+    candidateName,
+    examNumber,
+    targetClass,
+    entranceScore,
+    schoolName,
+    issueDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  });
+
+  useEffect(() => {
+    QRCode.toDataURL(qrPayload, {
+      margin: 1,
+      width: 180,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#000000', light: '#ffffff' }
+    })
+      .then(url => setDisplayQrUrl(url))
+      .catch(err => console.warn('QR code generation error:', err));
+  }, [qrPayload]);
 
   const downloadLetter = async () => {
-    const doc = new jsPDF();
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
 
-    // Header Bar
-    doc.setFillColor(5, 46, 22); // emerald-950
-    doc.rect(0, 0, 210, 42, 'F');
-
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(20);
+    // 1. Header (Pure White Background for B&W Printers)
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text('IMAM MALIK SCIENCE & TAHFIZ COLLEGE', 105, 18, { align: 'center' });
+    doc.text('IMAM MALIK SCIENCE & TAHFIZ COLLEGE, TUDUN WADA', 105, 18, { align: 'center' });
 
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setFont('helvetica', 'normal');
-    doc.text('Karefa Road Tudun Wada Dankadai, Kano State | Tel: 07011748311', 105, 28, { align: 'center' });
-    doc.setFont('helvetica', 'bold');
-    doc.text('OFFICIAL PROVISIONAL ADMISSION OFFER', 105, 36, { align: 'center' });
+    doc.text('Karefa Road Tudun Wada Dankadai | Tel: 07011748311, 08032765759', 105, 25, { align: 'center' });
 
-    // Document Meta
-    doc.setTextColor(50, 50, 50);
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'bold');
+    doc.text('OFFICIAL PROVISIONAL ADMISSION OFFER • 2026/2027 ACADEMIC SESSION', 105, 33, { align: 'center' });
+
+    // Clean Black Header Divider Lines
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.8);
+    doc.line(20, 37, 190, 37);
+    doc.setLineWidth(0.2);
+    doc.line(20, 38.5, 190, 38.5);
+
+    // 2. Document Meta Bar
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
 
     const dateStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-    doc.text(`Date: ${dateStr}`, 20, 52);
-    doc.text(`Exam / Reg No: ${examNumber}`, 20, 58);
-    doc.text(`Session: 2026/2027 Academic Session`, 130, 52);
-    doc.text(`Status: APPROVED`, 130, 58);
+    doc.text(`Date of Issue: ${dateStr}`, 20, 46);
+    doc.text(`Exam / Reg No: ${examNumber}`, 20, 52);
+    doc.text(`Academic Session: 2026/2027`, 130, 46);
 
-    // Salutation
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(13);
+    // Status Box (Black & White outline)
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.5);
+    doc.rect(130, 48.5, 60, 6.5, 'S');
     doc.setFont('helvetica', 'bold');
-    doc.text(`Dear ${candidateName},`, 20, 72);
+    doc.setFontSize(8.5);
+    doc.text('OFFER STATUS: APPROVED', 160, 53, { align: 'center' });
 
-    // Body
-    doc.setFontSize(10.5);
+    // 3. Salutation & Official Intro
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Dear ${candidateName},`, 20, 64);
+
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    const body = `We are pleased to formally inform you that following your performance in the entrance examination and screening exercise, you have been OFFERED PROVISIONAL ADMISSION into Imam Malik Science & Tahfiz College, Kano for the 2026/2027 Academic Session.`;
+    const body = `We are pleased to formally inform you that following your performance in the entrance examination, you have been OFFERED PROVISIONAL ADMISSION into Imam Malik Science & Tahfiz College, Tudun Wada for the 2026/2027 Academic Session.`;
     const splitBody = doc.splitTextToSize(body, 170);
-    doc.text(splitBody, 20, 80);
+    doc.text(splitBody, 20, 70);
 
-    // Placement & Score Box
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(226, 232, 240);
-    doc.roundedRect(20, 96, 170, 42, 3, 3, 'FD');
+    // 4. Candidate Placement & Result Record Box (Clean B&W Border)
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.4);
+    doc.rect(20, 81, 170, 29, 'S');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(5, 46, 22);
-    doc.text('CANDIDATE ADMISSION & PLACEMENT RECORD', 25, 104);
+    doc.setFontSize(8.5);
+    doc.text('CANDIDATE ADMISSION & PLACEMENT RECORD', 25, 87);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(60, 60, 60);
-    doc.text(`Assigned Class:`, 25, 114);
+    doc.setFontSize(8.5);
+    doc.text('Assigned Class / Placement:', 25, 94);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${targetClass.toUpperCase()}`, 65, 114);
+    doc.text(`${targetClass.toUpperCase()}`, 75, 94);
 
     doc.setFont('helvetica', 'normal');
-    doc.text(`Entrance Exam Score:`, 25, 122);
+    doc.text('Entrance Exam Score:', 25, 100);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${entranceScore ? entranceScore + ' / 100 (Passed)' : 'Passed'}`, 65, 122);
+    doc.text(`${entranceScore ? entranceScore + ' / 100 (Passed - Eligible)' : 'Passed (Eligible)'}`, 75, 100);
 
     doc.setFont('helvetica', 'normal');
-    doc.text(`Previous School:`, 25, 130);
+    doc.text('Previous School:', 25, 106);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${schoolName || 'Not Specified'}`, 65, 130);
+    doc.text(`${schoolName || 'Primary School'}`, 75, 106);
 
-    // Fee Schedule & Directives
-    doc.setTextColor(0, 0, 0);
+    // 5. Fee Schedule Box (Clean B&W Border)
+    doc.rect(20, 114, 170, 24, 'S');
+
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10.5);
-    doc.text('Registration & Acceptance Fee Requirements:', 20, 148);
+    doc.setFontSize(8.5);
+    doc.text('REGISTRATION & DEVELOPMENT LEVY SCHEDULE:', 25, 120);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.text('To accept this provisional offer and secure your enrollment, proceed with registration:', 20, 155);
-    doc.text('• Registration Fee: N12,000', 25, 162);
-    doc.text('• Development Levy: N3,000', 25, 168);
+    doc.setFontSize(8);
+    doc.text('• Registration & Prospectus Fee: N12,000', 25, 126);
+    doc.text('• School Development Levy: N3,000', 25, 131);
     doc.setFont('helvetica', 'bold');
-    doc.text('• Total Payable: N15,000 (Payable via Student Portal or School Paystack)', 25, 174);
+    doc.text('• Total Payable: N15,000 (Payable via Student Portal or School Desk)', 100, 128);
+
+    // 6. Required Working Materials, Uniforms & Textbooks Directives
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text('REQUIRED WORKING MATERIALS, UNIFORMS & TEXTBOOKS:', 20, 144);
 
     doc.setFont('helvetica', 'normal');
-    const instructions = `You are required to complete your registration payment and bring along original copies of your credentials, birth certificate, and two passport photographs for physical verification within two weeks of this offer.`;
-    const splitInstructions = doc.splitTextToSize(instructions, 170);
-    doc.text(splitInstructions, 20, 185);
+    doc.setFontSize(8.5);
+    
+    const mat1 = '• Working Materials: Parents/guardians are required to purchase all necessary working materials for their child, including exercise books, pens, a mathematical set, and a scientific calculator.';
+    const splitMat1 = doc.splitTextToSize(mat1, 170);
+    doc.text(splitMat1, 20, 150);
 
-    doc.text('Congratulations on your admission.', 20, 204);
+    const mat2 = '• School Uniforms: Students are strongly advised to have two (2) complete sets of the approved school uniform.';
+    const splitMat2 = doc.splitTextToSize(mat2, 170);
+    doc.text(splitMat2, 20, 161);
 
-    doc.text('Yours faithfully,', 20, 215);
+    const mat3 = '• Islamic & Core Textbooks: Prescribed Islamic textbooks and learning materials are readily available in the school for parents to purchase for their child.';
+    const splitMat3 = doc.splitTextToSize(mat3, 170);
+    doc.text(splitMat3, 20, 169);
+
+    const mat4 = '• Registration Finalization: Parents should complete registration payment and submit credentials (birth certificate/age declaration and two passport photographs) to finalize enrollment.';
+    const splitMat4 = doc.splitTextToSize(mat4, 170);
+    doc.text(splitMat4, 20, 177);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Congratulations on your admission to Imam Malik Science & Tahfiz College.', 20, 192);
+
+    // 7. Signature Block
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text('Yours faithfully,', 20, 201);
+
     try {
       const pngSignature = await new Promise<string>((resolve) => {
         const img = new Image();
         img.src = MAHMOUD_ADAMU_SIGNATURE;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          canvas.width = 200;
-          canvas.height = 100;
+          canvas.width = 320;
+          canvas.height = 140;
           const ctx = canvas.getContext('2d');
           if (ctx) {
-            ctx.drawImage(img, 0, 0, 200, 100);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, 320, 140);
+            ctx.drawImage(img, 0, 0, 320, 140);
             resolve(canvas.toDataURL('image/png'));
           } else {
             resolve(MAHMOUD_ADAMU_SIGNATURE);
@@ -126,108 +187,114 @@ export default function AdmissionLetter({ application }: AdmissionLetterProps) {
         };
         img.onerror = () => resolve(MAHMOUD_ADAMU_SIGNATURE);
       });
-      doc.addImage(pngSignature, 'PNG', 20, 218, 35, 14);
+      doc.addImage(pngSignature, 'PNG', 20, 203, 46, 18);
     } catch (e) {
       console.warn('Signature addition failed in PDF:', e);
     }
 
     doc.setFont('helvetica', 'bold');
-    doc.text('Mahmoud Adamu', 20, 240);
+    doc.setFontSize(9.5);
+    doc.text('Mahmoud Adamu', 20, 226);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text('Secretary, Governing Board', 20, 245);
-    doc.text('Imam Malik Science & Tahfiz College Kano', 20, 250);
+    doc.setFontSize(8.5);
+    doc.text('Secretary, Governing Board', 20, 230);
+    doc.text('Imam Malik Science & Tahfiz College Tudun Wada', 20, 235);
 
-    // Embedded Verification QR Code
+    // 8. High-Res B&W QR Code (Name and Exam Number)
     try {
-      const qrDataUrl = await QRCode.toDataURL(`VERIFY-IMSC-OFFER-${examNumber}`);
-      doc.addImage(qrDataUrl, 'PNG', 155, 212, 32, 32);
+      const qrDataUrl = await QRCode.toDataURL(qrPayload, {
+        margin: 1,
+        width: 140,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#000000', light: '#ffffff' }
+      });
+      doc.addImage(qrDataUrl, 'PNG', 152, 200, 34, 34);
       doc.setFontSize(7);
-      doc.setTextColor(130, 130, 130);
-      doc.text('Scan to Verify Offer', 171, 248, { align: 'center' });
+      doc.setFont('helvetica', 'bold');
+      doc.text('Scan for Name & Exam No.', 169, 238, { align: 'center' });
     } catch (e) {
       console.warn('QR code generation failed:', e);
     }
 
-    // Gold Footer line
-    doc.setDrawColor(245, 158, 11);
-    doc.setLineWidth(2);
-    doc.line(20, 260, 190, 260);
+    // 9. Clean Black Footer Line
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.6);
+    doc.line(20, 248, 190, 248);
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.text(
+      'Imam Malik Science & Tahfiz College Tudun Wada • Academic Excellence & Qur\'anic Values • Official Admission Offer',
+      105,
+      254,
+      { align: 'center' }
+    );
 
     doc.save(`Admission_Offer_Letter_${candidateName.replace(/\s+/g, '_')}.pdf`);
   };
 
   return (
-    <div className="bg-white p-6 md:p-12 rounded-3xl shadow-xl border border-slate-100 max-w-4xl mx-auto my-6 print:shadow-none print:border-none print:p-0 text-left">
-      {/* Letterhead */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 border-b border-slate-100 pb-6">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 bg-emerald-950 rounded-2xl flex items-center justify-center shadow-md">
-            <Landmark className="text-amber-400" size={32} />
-          </div>
-          <div>
-            <h1 className="text-xl md:text-2xl font-black text-emerald-950 uppercase tracking-tight">
-              Imam Malik Science & Tahfiz College
-            </h1>
-            <p className="text-[11px] font-bold text-amber-600 uppercase tracking-widest">
-              Karefa Road Tudun Wada Dankadai, Kano State | 07011748311
-            </p>
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Offer Status</p>
-          <div className="px-3.5 py-1.5 bg-emerald-100 text-emerald-800 rounded-full font-black text-xs uppercase tracking-wider inline-flex items-center gap-1.5">
-            <CheckCircle2 size={14} /> Approved
-          </div>
-        </div>
+    <div className="bg-white text-black p-6 md:p-12 rounded-2xl border border-black max-w-4xl mx-auto my-6 print:m-0 print:border-none print:p-0 print:shadow-none text-left font-sans shadow-none">
+      {/* Letterhead (Pure White Background - No Colored Heading) */}
+      <div className="bg-white text-center border-b-2 border-black pb-4 mb-6">
+        <h1 className="text-xl md:text-2xl font-black uppercase tracking-tight text-black">
+          Imam Malik Science & Tahfiz College, Tudun Wada
+        </h1>
+        <p className="text-xs font-semibold text-black uppercase tracking-wider mt-1">
+          Karefa Road Tudun Wada Dankadai | Tel: 07011748311, 08032765759
+        </p>
+        <p className="text-xs font-black uppercase tracking-widest mt-2 border-t border-black pt-2 inline-block">
+          Official Provisional Admission Offer • 2026/2027 Academic Session
+        </p>
       </div>
 
-      <div className="space-y-6 text-slate-700 leading-relaxed text-sm">
-        <div className="flex justify-between items-end text-xs border-b border-slate-100 pb-4">
+      <div className="space-y-5 text-black leading-relaxed text-sm">
+        {/* Document Meta Row */}
+        <div className="flex justify-between items-center text-xs border-b border-black pb-3 bg-white">
           <div className="space-y-1">
-            <p className="font-bold text-slate-800">
-              Date: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+            <p className="font-bold">
+              Date of Issue: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
-            <p className="text-slate-500 font-mono">
+            <p className="font-mono">
               Ref: IMSC/ADM/2026/{examNumber.replace(/[^a-zA-Z0-9]/g, '')}
             </p>
           </div>
-          <div className="text-right font-mono text-slate-600 font-bold">
-            Exam No: <span className="text-emerald-950">{examNumber}</span>
+          <div className="text-right">
+            <p className="font-mono font-bold">Exam / Reg No: {examNumber}</p>
+            <div className="border border-black px-3 py-0.5 mt-1 inline-block font-black text-[11px] uppercase bg-white">
+              Status: Approved
+            </div>
           </div>
         </div>
 
+        {/* Salutation & Body */}
         <div>
-          <p className="font-bold text-slate-900 mb-2 text-base">Dear {candidateName},</p>
-          <h2 className="text-xl md:text-2xl font-black text-emerald-950 mb-4 uppercase tracking-tight border-b-2 border-amber-400 inline-block pb-1">
-            Provisional Admission Offer (2026/2027)
-          </h2>
-
-          <p className="mb-6 text-slate-700">
-            We are pleased to inform you that your performance in the entrance examination has been reviewed and{' '}
-            <strong className="text-emerald-950">APPROVED</strong>. You have been offered provisional admission into{' '}
-            <strong>Imam Malik Science & Tahfiz College</strong> for the 2026/2027 Academic Session.
+          <p className="font-bold text-base mb-2">Dear {candidateName},</p>
+          <p className="mb-4 text-black text-sm">
+            We are pleased to formally inform you that following your performance in the entrance examination, you have been{' '}
+            <strong className="underline">OFFERED PROVISIONAL ADMISSION</strong> into{' '}
+            <strong>Imam Malik Science & Tahfiz College, Tudun Wada</strong> for the 2026/2027 Academic Session.
           </p>
 
-          {/* Placement Details Card */}
-          <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-6">
-            <h3 className="text-xs font-black text-emerald-950 uppercase tracking-widest mb-4 flex items-center gap-2">
-              <Award size={16} className="text-amber-500" /> Candidate Placement & Result Record
+          {/* Candidate Placement Box */}
+          <div className="border border-black p-4 mb-4 bg-white">
+            <h3 className="text-xs font-black uppercase tracking-wider mb-3">
+              Candidate Admission & Placement Record
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               <div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Assigned Class</p>
-                <p className="font-bold text-slate-800 text-sm">{targetClass.toUpperCase()}</p>
+                <p className="text-[10px] uppercase text-black font-semibold">Assigned Class</p>
+                <p className="font-black text-sm">{targetClass.toUpperCase()}</p>
               </div>
               <div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Entrance Exam Score</p>
-                <p className="font-bold text-emerald-800 text-sm">
+                <p className="text-[10px] uppercase text-black font-semibold">Entrance Exam Score</p>
+                <p className="font-black text-sm">
                   {entranceScore ? `${entranceScore} / 100 (Passed)` : 'Passed (Eligible)'}
                 </p>
               </div>
               <div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Previous School</p>
-                <p className="font-bold text-slate-800 text-sm truncate" title={schoolName || ''}>
+                <p className="text-[10px] uppercase text-black font-semibold">Previous School</p>
+                <p className="font-bold text-sm truncate" title={schoolName || ''}>
                   {schoolName || 'Primary School'}
                 </p>
               </div>
@@ -235,60 +302,87 @@ export default function AdmissionLetter({ application }: AdmissionLetterProps) {
           </div>
 
           {/* Fee Schedule Box */}
-          <div className="bg-amber-50/70 p-5 rounded-2xl border border-amber-200/80 mb-6 space-y-2">
-            <h4 className="text-xs font-black text-amber-950 uppercase tracking-wider">
-              Registration & Development Fee Schedule:
+          <div className="border border-black p-4 mb-4 bg-white">
+            <h4 className="text-xs font-black uppercase tracking-wider mb-2">
+              Registration & Development Levy Schedule:
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div className="bg-white p-3 rounded-xl border border-amber-100">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Registration Fee</span>
-                <span className="font-black text-emerald-950 text-sm">₦12,000</span>
+              <div className="border border-black p-2.5 bg-white">
+                <span className="block text-[10px] uppercase font-bold text-black">Registration Fee</span>
+                <span className="font-black text-sm text-black">₦12,000</span>
               </div>
-              <div className="bg-white p-3 rounded-xl border border-amber-100">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Development Levy</span>
-                <span className="font-black text-emerald-950 text-sm">₦3,000</span>
+              <div className="border border-black p-2.5 bg-white">
+                <span className="block text-[10px] uppercase font-bold text-black">Development Levy</span>
+                <span className="font-black text-sm text-black">₦3,000</span>
               </div>
-              <div className="bg-emerald-900 text-white p-3 rounded-xl">
-                <span className="text-emerald-200 block text-[10px] uppercase font-bold">Total Required</span>
-                <span className="font-black text-amber-400 text-sm">₦15,000</span>
+              <div className="border border-black p-2.5 bg-white">
+                <span className="block text-[10px] uppercase font-bold text-black">Total Payable</span>
+                <span className="font-black text-sm text-black">₦15,000</span>
               </div>
             </div>
           </div>
 
-          <p className="mb-8 text-xs text-slate-600">
-            You are required to complete your registration payment and proceed to the school premises for physical
-            verification and screening within two weeks of this offer. Please bring along original copies of your
-            credentials, birth certificate, and two passport photographs.
+          {/* Working Materials, Uniforms & Islamic Textbooks Section */}
+          <div className="border border-black p-4 mb-4 space-y-2 text-xs bg-white">
+            <h4 className="text-xs font-black uppercase tracking-wider">
+              Required Working Materials, Uniforms & Textbooks:
+            </h4>
+            <ul className="list-disc pl-5 space-y-1.5 text-black">
+              <li>
+                <strong>Working Materials:</strong> Parents/guardians are required to purchase all necessary working materials for their child, including <strong>exercise books, pens, a mathematical set, and a scientific calculator</strong>.
+              </li>
+              <li>
+                <strong>School Uniforms:</strong> Students are strongly advised to have <strong>two (2) complete sets</strong> of the approved school uniform.
+              </li>
+              <li>
+                <strong>Islamic & Academic Textbooks:</strong> Prescribed Islamic textbooks and learning materials are readily <strong>available in the school</strong> for parents to purchase for their child.
+              </li>
+              <li>
+                <strong>Registration Finalization:</strong> Parents are advised to complete registration payment and submit credentials (original copies of birth certificate/age declaration and two recent passport photographs) to finalize enrollment.
+              </li>
+            </ul>
+          </div>
+
+          <p className="text-xs font-bold text-black mb-4">
+            Congratulations on your provisional admission to Imam Malik Science & Tahfiz College, Tudun Wada.
           </p>
 
           {/* Governing Board Signature Block & QR Code */}
-          <div className="pt-8 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6">
+          <div className="pt-4 border-t border-black flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 bg-white">
             <div>
-              <p className="font-medium text-slate-500 text-xs mb-1">Yours faithfully,</p>
+              <p className="font-semibold text-xs mb-1">Yours faithfully,</p>
               <div className="h-16 flex items-center mb-1">
                 <img
                   src={MAHMOUD_ADAMU_SIGNATURE}
                   alt="Mahmoud Adamu Signature"
-                  className="h-12 object-contain"
+                  className="h-14 w-auto object-contain filter grayscale contrast-200"
                 />
               </div>
-              <p className="font-black text-slate-900 text-sm">Mahmoud Adamu</p>
-              <p className="text-xs text-slate-500 font-bold uppercase">Secretary, Governing Board</p>
-              <p className="text-[10px] text-slate-400 font-medium uppercase">
-                Imam Malik Science & Tahfiz College Kano
+              <p className="font-black text-sm">Mahmoud Adamu</p>
+              <p className="text-xs font-bold uppercase">Secretary, Governing Board</p>
+              <p className="text-[11px] font-medium">
+                Imam Malik Science & Tahfiz College Tudun Wada
               </p>
             </div>
 
             <div className="text-center sm:text-right flex flex-col items-center sm:items-end">
-              <div className="w-20 h-20 bg-white p-1 rounded-xl border border-slate-200 shadow-sm flex items-center justify-center">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=VERIFY-IMSC-OFFER-${examNumber}`}
-                  alt="Admission QR Code"
-                  className="w-full h-full object-contain"
-                />
+              <div className="w-24 h-24 bg-white p-1 border border-black flex items-center justify-center">
+                {displayQrUrl ? (
+                  <img
+                    src={displayQrUrl}
+                    alt="Admission Verification QR Code"
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(qrPayload)}&color=0-0-0`}
+                    alt="Admission Verification QR Code"
+                    className="w-full h-full object-contain"
+                  />
+                )}
               </div>
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                Official Security Code
+              <span className="text-[8.5px] font-bold uppercase tracking-widest mt-1 text-black">
+                Scan for Name & Exam No.
               </span>
             </div>
           </div>
@@ -296,14 +390,15 @@ export default function AdmissionLetter({ application }: AdmissionLetterProps) {
       </div>
 
       {/* Action Buttons */}
-      <div className="mt-8 pt-6 border-t border-slate-100 flex flex-wrap gap-4 no-print">
-        <button onClick={downloadLetter} className="btn-primary flex items-center gap-2 text-xs font-bold px-6 py-3 cursor-pointer">
-          <Download size={16} /> Download Official PDF
+      <div className="mt-8 pt-6 border-t border-black flex flex-wrap gap-4 no-print">
+        <button onClick={downloadLetter} className="btn-primary flex items-center gap-2 text-xs font-bold px-6 py-3 cursor-pointer bg-black text-white hover:bg-slate-800">
+          <Download size={16} /> Download Official PDF (B&W Ready)
         </button>
-        <button onClick={() => window.print()} className="btn-secondary flex items-center gap-2 text-xs font-bold px-6 py-3 cursor-pointer">
-          <Printer size={16} /> Print Letter
+        <button onClick={() => window.print()} className="btn-secondary flex items-center gap-2 text-xs font-bold px-6 py-3 cursor-pointer border border-black bg-white text-black hover:bg-slate-100">
+          <Printer size={16} /> Print Letter (B&W)
         </button>
       </div>
     </div>
   );
 }
+

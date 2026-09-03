@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -13,6 +13,7 @@ import { useAuth } from '../../lib/auth';
 import { safeStorage } from '../../lib/safeStorage';
 import AdmissionLetter from './AdmissionLetter';
 import QRCode from 'qrcode';
+import { sendApplicationSubmittedEmail, sendPaymentSuccessEmail } from '../../lib/emailService';
 
 type FormData = {
   firstName: string;
@@ -70,7 +71,7 @@ export default function AdmissionPage() {
     return true;
   });
   const [verifyingUrl, setVerifyingUrl] = useState(false);
-  const verifiedRefs = React.useRef<Set<string>>(new Set());
+  const verifiedRefs = useRef<Set<string>>(new Set());
   const [paymentStatusMessage, setPaymentStatusMessage] = useState("We're checking your payment with Paystack. Please don't refresh the page, your form will load in a moment.");
   const [existingApplication, setExistingApplication] = useState<any>(() => {
     const activeUserId = localStorage.getItem('imsc_active_user_id') || 'anon';
@@ -117,6 +118,11 @@ export default function AdmissionPage() {
   // Client-side automated notifications centre
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState<boolean>(false);
+  const [passportPreview, setPassportPreview] = useState<string | null>(null);
+
+  const { register, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<FormData>();
+  const watchSpecialNeeds = watch("hasSpecialNeeds");
 
   useEffect(() => {
     if (user?.uid) {
@@ -192,12 +198,9 @@ export default function AdmissionPage() {
       }
     }
   };
-  const [isUpdatingSettings, setIsUpdatingSettings] = useState<boolean>(false);
   
   const isHeadlessEndpoint = !!(netlifyFormUrl?.includes('/s/') || netlifyFormUrl?.includes('formbold.com/s/'));
   const shouldRenderExternal = useExternalForm && !isHeadlessEndpoint;
-  
-  const { register, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<FormData>();
 
   // Watch all active form fields to auto-save drafts
   const watchedFields = watch();
@@ -431,6 +434,18 @@ export default function AdmissionPage() {
                 createdAt: new Date().toISOString()
               })
             ]);
+            // Trigger automated Brevo transactional email receipt
+            const payerEmail = user?.email || localStorage.getItem('imsc_last_payer_email') || 'applicant@imsc.edu.ng';
+            sendPaymentSuccessEmail({
+              customerName: user?.displayName || 'Applicant',
+              email: payerEmail,
+              amount: admissionFee.amount,
+              reference: reference,
+              description: 'Admission & Prospectus Fee',
+              receiptNumber: receiptNo,
+              userId: user?.uid
+            }).catch(e => console.warn("Background payment email notice warning:", e));
+
             console.log("Supabase payment record and notification created successfully in parallel!");
           }
         } catch (bgErr) {
@@ -459,33 +474,75 @@ export default function AdmissionPage() {
     
     // Choose the configured state key or env key or a default public test key fallback
     const activeKey = paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_322d4bde836a684b28f791049b8c3997742c8985';
-    const directLink = `https://paystack.shop/pay/njvkcjper`;
+    const directLink = `https://paystack.shop/pay/imammalikcollege`;
+
+    setIsSubmitting(true);
+
+    // Dynamically load Paystack script if not present
+    if (!(window as any).PaystackPop) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const existingScript = document.getElementById('paystack-script');
+          if (existingScript) {
+            existingScript.onload = () => resolve();
+            return;
+          }
+          const script = document.createElement('script');
+          script.id = 'paystack-script';
+          script.src = 'https://js.paystack.co/v1/inline.js';
+          script.async = true;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Failed to load Paystack script'));
+          document.body.appendChild(script);
+        });
+      } catch (err) {
+        console.warn("Could not load Paystack inline script dynamically:", err);
+      }
+    }
 
     // Scenario A: Use Integrated Popup (Always try inline Pop.setup first if the js.paystack.co inline.js is loaded)
     if ((window as any).PaystackPop) {
-      setIsSubmitting(true);
       try {
-        // @ts-ignore
-        const handler = window.PaystackPop.setup({
+        const onAdmissionSuccess = function(response: any) {
+          const verifiedRef = (response && (response.reference || response.trxref)) || '';
+          verifyManualPayment(verifiedRef, true);
+        };
+        const onAdmissionClose = function() {
+          setIsSubmitting(false);
+        };
+
+        const paystackOptions: any = {
           key: activeKey,
           email: email,
-          amount: admissionFee.amount * 100,
+          amount: Math.round(Number(admissionFee.amount) * 100),
           currency: 'NGN',
-          callback: function(response: any) {
-            verifyManualPayment(response.reference, true);
-          },
-          onClose: function() {
-            setIsSubmitting(false);
+          callback: onAdmissionSuccess,
+          onClose: onAdmissionClose
+        };
+
+        if (typeof (window as any).PaystackPop?.setup === 'function') {
+          const handler = (window as any).PaystackPop.setup(paystackOptions);
+          if (handler && typeof handler.openIframe === 'function') {
+            handler.openIframe();
+            return;
           }
-        });
-        handler.openIframe();
-        return;
+        } else if (typeof (window as any).PaystackPop === 'function') {
+          const paystack = new (window as any).PaystackPop();
+          if (typeof paystack.newTransaction === 'function') {
+            paystack.newTransaction(paystackOptions);
+            return;
+          } else if (typeof paystack.setup === 'function') {
+            paystack.setup(paystackOptions).openIframe();
+            return;
+          }
+        }
       } catch (err) {
         console.error("Popup failed, falling back to link", err);
       }
     }
 
     // Scenario B: Fallback to Direct Link
+    setIsSubmitting(false);
     setOpenedPaymentTab(true);
     window.open(directLink, '_blank');
   };
@@ -846,9 +903,6 @@ export default function AdmissionPage() {
     }
   }, [user, step]);
 
-  const watchSpecialNeeds = watch("hasSpecialNeeds");
-  const [passportPreview, setPassportPreview] = useState<string | null>(null);
-
   const handleAutoFillDemo = () => {
     setValue('firstName', 'Balarabe');
     setValue('lastName', 'Musa');
@@ -999,6 +1053,18 @@ export default function AdmissionPage() {
             firestoreNotificationPromise.catch(e => console.warn("Firestore notification insert failed:", e))
           ]);
           console.log("Supabase and Firestore background parallel save complete!");
+          
+          // Trigger Brevo Application Confirmation Email
+          sendApplicationSubmittedEmail({
+            applicantName: `${data.firstName} ${data.lastName}`,
+            email: data.email || user?.email || 'applicant@imsc.edu.ng',
+            phone: data.phone,
+            referenceNumber: txnId,
+            targetClass: data.targetClassId || 'Selected Class',
+            status: 'Submitted / Under Review',
+            nextSteps: 'Please print your admission letter slip and await screening review.',
+            userId: user?.uid
+          }).catch(emErr => console.warn("Background application email notice warning:", emErr));
         } catch (err) {
           console.warn("Supabase background writes failed/skipped:", err);
         }
@@ -1774,7 +1840,7 @@ export default function AdmissionPage() {
                               <p className="text-center text-[11px] text-slate-500">
                                 Having issues with the popup?{" "}
                                 <a 
-                                  href="https://paystack.shop/pay/njvkcjper"
+                                  href="https://paystack.shop/pay/imammalikcollege"
                                   target="_blank" 
                                   rel="noopener noreferrer"
                                   onClick={() => setOpenedPaymentTab(true)}
@@ -1786,7 +1852,7 @@ export default function AdmissionPage() {
                             </div>
                           ) : (
                             (() => {
-                              const payLink = "https://paystack.shop/pay/njvkcjper";
+                              const payLink = "https://paystack.shop/pay/imammalikcollege";
                               return (
                                 <a 
                                   href={payLink}
@@ -2289,7 +2355,7 @@ export default function AdmissionPage() {
                     </div>
                     <div>
                       <h1 className="text-2xl font-serif font-black text-emerald-950 tracking-tight leading-none uppercase">Imam Malik Science & Tahfiz College</h1>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Karefa Road Tudun Wada Dankadai, Kano State | Tel: 07011748311</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Karefa Road Tudun Wada Dankadai, Kano State | Tel: 07011748311, 08032765759</p>
                     </div>
                   </div>
                 </div>

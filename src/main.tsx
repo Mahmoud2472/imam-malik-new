@@ -1,3 +1,8 @@
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App.tsx';
+import './index.css';
+
 // Safely shim localStorage for environments where third-party iframe cookie/storage restrictions are active
 try {
   const testKey = '__storage_test_main__';
@@ -44,11 +49,6 @@ try {
     }
   }
 }
-
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
-import App from './App.tsx';
-import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

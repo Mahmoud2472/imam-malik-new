@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { collection, query, onSnapshot, deleteDoc, doc, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { Search, Plus, Edit, Trash2, FileText, Loader2, Download } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, FileText, Loader2, Download, Printer } from 'lucide-react';
 import StudentModal from './modals/StudentModal';
+import BulkAdmissionLettersModal from './modals/BulkAdmissionLettersModal';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import QRCode from 'qrcode';
@@ -13,6 +14,7 @@ export default function AdminStudents() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBulkLettersModalOpen, setIsBulkLettersModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
 
   useEffect(() => {
@@ -149,7 +151,14 @@ export default function AdminStudents() {
             placeholder="Search by name or admission ID..." 
           />
         </div>
-        <div className="flex items-center gap-3 w-full xl:w-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+          <button 
+            onClick={() => setIsBulkLettersModalOpen(true)}
+            className="flex-grow xl:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-emerald-950 rounded-xl font-black text-xs transition-all shadow-sm cursor-pointer"
+            title="Download all official student admission letters in one PDF"
+          >
+            <FileText size={16} /> Bulk Admission Letters (1-Click PDF)
+          </button>
           <button 
             onClick={generateReport}
             className="flex-grow xl:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-600 font-bold text-xs hover:bg-slate-50 transition-colors"
@@ -187,8 +196,8 @@ export default function AdminStudents() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredStudents.map((student) => (
-                  <tr key={student.id} className="hover:bg-slate-50/30 transition-colors group">
+                {filteredStudents.map((student, idx) => (
+                  <tr key={`${student.id || 'student'}-${idx}`} className="hover:bg-slate-50/30 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-emerald-900 text-amber-500 font-bold flex items-center justify-center">
@@ -251,6 +260,25 @@ export default function AdminStudents() {
         onClose={() => setIsModalOpen(false)}
         student={selectedStudent}
         classes={classes}
+      />
+
+      {/* Bulk Admission Letters Modal */}
+      <BulkAdmissionLettersModal
+        isOpen={isBulkLettersModalOpen}
+        onClose={() => setIsBulkLettersModalOpen(false)}
+        preloadedCandidates={
+          students.map((s) => ({
+            name: `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'Student',
+            firstName: s.firstName,
+            lastName: s.lastName,
+            examNumber: s.admissionNumber || s.examNumber || s.id,
+            targetClass: getClassName(s.currentClassId) || 'JSS 1',
+            entranceScore: s.entranceScore || 80,
+            schoolName: s.formerSchool || 'Imam Malik Model Primary School',
+            gender: s.gender || 'male',
+            admissionStatus: 'approved'
+          }))
+        }
       />
     </div>
   );

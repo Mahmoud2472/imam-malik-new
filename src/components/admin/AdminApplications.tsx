@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, addDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-import { CheckCircle, XCircle, Search, Filter, Loader2, Trash2, Eye, X, Mail, Sparkles } from 'lucide-react';
+import { CheckCircle, XCircle, Search, Filter, Loader2, Trash2, Eye, X, Mail, Sparkles, FileText, Download } from 'lucide-react';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { sendAdmissionApprovedEmail } from '../../lib/emailService';
+import BulkAdmissionLettersModal from './modals/BulkAdmissionLettersModal';
 
 export default function AdminApplications() {
   const [apps, setApps] = useState<any[]>([]);
@@ -16,6 +17,7 @@ export default function AdminApplications() {
   const [transactionId, setTransactionId] = useState('');
   const [paymentStatus, setPaymentStatus] = useState('');
   const [updatingPayment, setUpdatingPayment] = useState(false);
+  const [isBulkPdfModalOpen, setIsBulkPdfModalOpen] = useState(false);
   const [emailNotificationStatus, setEmailNotificationStatus] = useState<{
     show: boolean;
     to: string;
@@ -71,6 +73,16 @@ export default function AdminApplications() {
     let unsubscribeFirestore: (() => void) | null = null;
     let supabaseChannel: any = null;
 
+    const dedupeApps = (rawList: any[]) => {
+      const seen = new Set<string>();
+      return rawList.filter((item, idx) => {
+        const uniqueKey = String(item.id || item.examNumber || item.examNo || item.email || `app_${idx}`).trim().toLowerCase();
+        if (seen.has(uniqueKey)) return false;
+        seen.add(uniqueKey);
+        return true;
+      });
+    };
+
     const fetchAppsFromSupabase = async () => {
       try {
         const { data, error } = await supabase
@@ -78,7 +90,7 @@ export default function AdminApplications() {
           .select('*')
           .order('appliedDate', { ascending: false });
         if (error) throw error;
-        setApps(data || []);
+        setApps(dedupeApps(data || []));
       } catch (err) {
         console.error("Error fetching applications from Supabase:", err);
       } finally {
@@ -116,7 +128,8 @@ export default function AdminApplications() {
     } else {
       const q = query(collection(db, "applications"), orderBy("appliedDate", "desc"));
       unsubscribeFirestore = onSnapshot(q, (snapshot) => {
-        setApps(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const mapped = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setApps(dedupeApps(mapped));
         setLoading(false);
       }, (error) => {
         console.error("Firestore applications onSnapshot error:", error);
@@ -398,9 +411,18 @@ export default function AdminApplications() {
             placeholder="Search by name or email..." 
           />
         </div>
-        <button className="flex items-center gap-2 px-6 py-2.5 border rounded-xl font-bold text-xs text-slate-600 hover:bg-white transition-colors bg-slate-50/50">
-          <Filter size={16} /> Filter Results
-        </button>
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <button
+            onClick={() => setIsBulkPdfModalOpen(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-emerald-950 rounded-xl font-black text-xs transition-all shadow-md cursor-pointer"
+            title="Generate unified multi-page PDF containing admission letters for all admitted candidates"
+          >
+            <FileText size={16} /> Bulk Admission Letters (1-Click PDF)
+          </button>
+          <button className="flex items-center gap-2 px-6 py-2.5 border rounded-xl font-bold text-xs text-slate-600 hover:bg-white transition-colors bg-slate-50/50">
+            <Filter size={16} /> Filter Results
+          </button>
+        </div>
       </div>
 
       <div className="glass-card overflow-hidden">
@@ -416,8 +438,8 @@ export default function AdminApplications() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filteredApps.map((app) => (
-                <tr key={app.id} className="hover:bg-slate-50/50 transition-colors">
+              {filteredApps.map((app, index) => (
+                <tr key={`${app.id || 'app'}-${index}`} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="font-bold text-slate-800">{app.firstName} {app.lastName}</div>
                     <div className="text-xs text-slate-400 font-medium">{app.email}</div>
@@ -630,6 +652,27 @@ export default function AdminApplications() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Bulk Admission Letters Modal */}
+      <BulkAdmissionLettersModal
+        isOpen={isBulkPdfModalOpen}
+        onClose={() => setIsBulkPdfModalOpen(false)}
+        preloadedCandidates={
+          apps
+            .filter((a) => a.status === 'approved')
+            .map((a) => ({
+              name: `${a.firstName || ''} ${a.lastName || ''}`.trim() || 'Candidate',
+              firstName: a.firstName,
+              lastName: a.lastName,
+              examNumber: a.examNumber || a.examNo || a.id,
+              targetClass: a.targetClassId || a.targetClass || 'JSS 1',
+              entranceScore: a.score || a.entranceScore || 75,
+              schoolName: a.schoolName || a.previousSchool,
+              gender: a.gender,
+              admissionStatus: 'approved'
+            }))
+        }
+      />
 
       {/* Email Dispatch Notification Toast */}
       <AnimatePresence>

@@ -1,9 +1,11 @@
 import * as XLSX from 'xlsx';
 import { db } from './firebase';
-import { collection, doc, setDoc, getDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, where, serverTimestamp } from 'firebase/firestore';
 import { safeStorage } from './safeStorage';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { addDebugLog } from './debug';
+
+export { safeStorage };
 
 export interface ParsedApplicant {
   id?: string;
@@ -71,6 +73,8 @@ export function parseExcelOrCsv(file: File): Promise<ParsedApplicant[]> {
           return;
         }
 
+        const seenExams = new Map<string, number>();
+
         const parsed: ParsedApplicant[] = rawJson.map((row, idx) => {
           // Normalize row keys
           const normRow: { [key: string]: any } = {};
@@ -114,7 +118,7 @@ export function parseExcelOrCsv(file: File): Promise<ParsedApplicant[]> {
           }
 
           // Exam Number
-          const examNumber = String(
+          const rawExamNumber = String(
             normRow['examno'] ||
             normRow['examnumber'] ||
             normRow['examinationno'] ||
@@ -124,6 +128,18 @@ export function parseExcelOrCsv(file: File): Promise<ParsedApplicant[]> {
             normRow['registrationno'] ||
             `EXAM-${2026000 + idx + 1}`
           ).trim();
+
+          // Handle clashes of exam numbers by appending 'E' (error/clash differentiation)
+          const examKey = rawExamNumber.toUpperCase();
+          let finalExamNumber = rawExamNumber;
+          if (seenExams.has(examKey)) {
+            const count = seenExams.get(examKey)!;
+            seenExams.set(examKey, count + 1);
+            const suffix = count === 1 ? 'E' : `E${count}`;
+            finalExamNumber = `${rawExamNumber}${suffix}`;
+          } else {
+            seenExams.set(examKey, 1);
+          }
 
           // School Name
           const schoolName = String(
@@ -153,24 +169,26 @@ export function parseExcelOrCsv(file: File): Promise<ParsedApplicant[]> {
             'passed'
           ).trim().toLowerCase();
 
+          const numericScore = Number(rawScore) || 0;
+          // Minimum of 40 marks admitted (Score >= 40)
           const isPassed =
             rawRemark.includes('pass') ||
             rawRemark.includes('admit') ||
             rawRemark.includes('qualif') ||
             rawRemark.includes('success') ||
-            Number(rawScore) >= 50;
+            numericScore >= 40;
 
           const remark: 'passed' | 'failed' = isPassed ? 'passed' : 'failed';
           const admissionStatus: 'approved' | 'rejected' = isPassed ? 'approved' : 'rejected';
 
           return {
-            id: `app_${examNumber.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+            id: `app_${finalExamNumber.replace(/[^a-zA-Z0-9_-]/g, '_')}_${idx + 1}`,
             serialNumber,
             name: rawName || `${firstName} ${lastName}`,
             firstName,
             lastName,
             gender,
-            examNumber,
+            examNumber: finalExamNumber,
             schoolName,
             entranceScore: rawScore,
             remark,
@@ -230,7 +248,7 @@ export function generateSampleExcelBlob(): Blob {
       'Gender': 'Male',
       'Exam No': 'IMSC/2026/004',
       'School Name': 'Tudun Wada Central Primary',
-      'Entrance Exam Score': 65,
+      'Entrance Exam Score': 45,
       'Remark': 'Passed',
       'Assigned Class': 'JSS 1A'
     },
@@ -240,7 +258,7 @@ export function generateSampleExcelBlob(): Blob {
       'Gender': 'Female',
       'Exam No': 'IMSC/2026/005',
       'School Name': 'Al-Bayan Academy',
-      'Entrance Exam Score': 42,
+      'Entrance Exam Score': 35,
       'Remark': 'Failed',
       'Assigned Class': 'JSS 1B'
     }
@@ -253,30 +271,94 @@ export function generateSampleExcelBlob(): Blob {
   return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
-// Save applicants to local storage, Firestore, and Supabase
-export async function saveUploadedApplicants(applicants: ParsedApplicant[]): Promise<{ added: number }> {
-  let count = 0;
+// Discard all previous applicant records from cache
+export function clearCachedApplicants(): void {
+  safeStorage.removeItem('imsc_applicants');
+  safeStorage.removeItem('imsc_successful_applicants');
+  safeStorage.removeItem('imsc_parsed_upload');
+  safeStorage.removeItem('imsc_cached_applicants');
+}
 
-  // 1. Local Cache Backup for both 'imsc_applicants' and 'imsc_successful_applicants'
-  const existingCached = safeStorage.getItem('imsc_applicants') || safeStorage.getItem('imsc_successful_applicants');
-  let currentList: ParsedApplicant[] = [];
-  if (existingCached) {
-    try {
-      currentList = JSON.parse(existingCached);
-    } catch (e) {}
+// Completely wipe out all previous admission and applicant records across cache, Firestore, and Supabase
+export async function wipeAllAdmissionLists(): Promise<{ deleted: boolean }> {
+  // 1. Clear all applicant-related localStorage keys
+  clearCachedApplicants();
+
+  // 2. Clear Firestore 'applicants' and 'successful_applicants' collections
+  try {
+    const snap1 = await getDocs(collection(db, 'applicants'));
+    if (!snap1.empty) {
+      for (const d of snap1.docs) {
+        try {
+          await deleteDoc(doc(db, 'applicants', d.id));
+        } catch (e) {}
+      }
+    }
+  } catch (err) {
+    console.warn("Error wiping Firestore 'applicants':", err);
   }
 
-  // Merge records by examNumber
-  applicants.forEach((newApp) => {
-    const idx = currentList.findIndex(
-      (a) => a.examNumber.trim().toLowerCase() === newApp.examNumber.trim().toLowerCase()
-    );
-    if (idx >= 0) {
-      currentList[idx] = { ...currentList[idx], ...newApp };
-    } else {
-      currentList.push(newApp);
+  try {
+    const snap2 = await getDocs(collection(db, 'successful_applicants'));
+    if (!snap2.empty) {
+      for (const d of snap2.docs) {
+        try {
+          await deleteDoc(doc(db, 'successful_applicants', d.id));
+        } catch (e) {}
+      }
     }
-  });
+  } catch (err) {
+    console.warn("Error wiping Firestore 'successful_applicants':", err);
+  }
+
+  // 3. Clear from Supabase if configured
+  if (isSupabaseConfigured) {
+    try {
+      await supabase.from('applicants').delete().neq('id', '___none___');
+      await supabase.from('successful_applicants').delete().neq('id', '___none___');
+    } catch (supErr) {
+      console.warn('Supabase delete table rows warning:', supErr);
+    }
+  }
+
+  addDebugLog('Applicant Service', 'All previous admission records have been completely wiped out from database and cache.', 'info');
+  return { deleted: true };
+}
+
+// Save applicants to local storage, Firestore, and Supabase (default: replace previous upload)
+export async function saveUploadedApplicants(
+  applicants: ParsedApplicant[], 
+  replacePrevious: boolean = true
+): Promise<{ added: number }> {
+  // If replacing previous upload, completely wipe existing admission records first
+  if (replacePrevious) {
+    await wipeAllAdmissionLists();
+  }
+
+  let count = 0;
+
+  // 1. Local Cache: If replacePrevious, start fresh; otherwise merge
+  let currentList: ParsedApplicant[] = [];
+  if (!replacePrevious) {
+    const existingCached = safeStorage.getItem('imsc_applicants') || safeStorage.getItem('imsc_successful_applicants');
+    if (existingCached) {
+      try {
+        currentList = JSON.parse(existingCached);
+      } catch (e) {}
+    }
+    applicants.forEach((newApp) => {
+      const idx = currentList.findIndex(
+        (a) => a.examNumber.trim().toLowerCase() === newApp.examNumber.trim().toLowerCase()
+      );
+      if (idx >= 0) {
+        currentList[idx] = { ...currentList[idx], ...newApp };
+      } else {
+        currentList.push(newApp);
+      }
+    });
+  } else {
+    currentList = [...applicants];
+  }
 
   safeStorage.setItem('imsc_applicants', JSON.stringify(currentList));
   safeStorage.setItem('imsc_successful_applicants', JSON.stringify(currentList));
@@ -393,9 +475,9 @@ export async function saveUploadedApplicants(applicants: ParsedApplicant[]): Pro
       }));
 
       // Upsert into 'applicants' table
-      await supabase.from('applicants').upsert(supabaseRows, { onConflict: 'id' }).catch(() => {});
+      await supabase.from('applicants').upsert(supabaseRows, { onConflict: 'id' });
       // Also upsert into 'successful_applicants' table
-      await supabase.from('successful_applicants').upsert(supabaseRows, { onConflict: 'id' }).catch(() => {});
+      await supabase.from('successful_applicants').upsert(supabaseRows, { onConflict: 'id' });
     } catch (supErr) {
       console.warn('Supabase bulk sync skipped:', supErr);
     }
@@ -408,6 +490,35 @@ export async function saveUploadedApplicants(applicants: ParsedApplicant[]): Pro
 // Fetch all uploaded applicants
 export async function getSuccessfulApplicants(): Promise<ParsedApplicant[]> {
   const result: ParsedApplicant[] = [];
+  const seenIds = new Set<string>();
+  const seenExamCounts = new Map<string, number>();
+
+  const addCandidate = (app: ParsedApplicant) => {
+    const rawExam = String(app.examNumber || app.id || '').trim();
+    const rawId = String(app.id || '').trim();
+    if (!rawExam && !rawId && !app.name) return;
+
+    if (rawId && seenIds.has(rawId)) return;
+    if (rawId) seenIds.add(rawId);
+
+    const examKey = rawExam.toUpperCase();
+    let finalExam = rawExam;
+    if (rawExam) {
+      if (seenExamCounts.has(examKey)) {
+        const count = seenExamCounts.get(examKey)!;
+        seenExamCounts.set(examKey, count + 1);
+        const suffix = count === 1 ? 'E' : `E${count}`;
+        finalExam = `${rawExam}${suffix}`;
+      } else {
+        seenExamCounts.set(examKey, 1);
+      }
+    }
+
+    result.push({
+      ...app,
+      examNumber: finalExam
+    });
+  };
 
   // Check local cache first
   const cached = safeStorage.getItem('imsc_applicants') || safeStorage.getItem('imsc_successful_applicants');
@@ -415,7 +526,25 @@ export async function getSuccessfulApplicants(): Promise<ParsedApplicant[]> {
     try {
       const parsed = JSON.parse(cached);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        result.push(...parsed);
+        parsed.forEach((item) => {
+          if (item && (item.examNumber || item.name || item.id)) {
+            addCandidate({
+              id: item.id || `app_${String(item.examNumber || Math.random()).replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+              serialNumber: item.serialNumber || 1,
+              name: item.name || `${item.firstName || ''} ${item.lastName || ''}`.trim() || 'Candidate',
+              firstName: item.firstName || item.name?.split(' ')[0] || 'Candidate',
+              lastName: item.lastName || item.name?.split(' ').slice(1).join(' ') || '',
+              gender: item.gender || inferGender(item.name || item.firstName || '', ''),
+              examNumber: String(item.examNumber || item.examNo || item.id || ''),
+              schoolName: item.schoolName || '',
+              entranceScore: item.entranceScore || item.score || 0,
+              remark: (item.remark || '').toLowerCase().includes('pass') || Number(item.entranceScore || item.score || 0) >= 40 ? 'passed' : 'failed',
+              admissionStatus: item.status === 'approved' || (item.remark || '').toLowerCase().includes('pass') || Number(item.entranceScore || item.score || 0) >= 40 ? 'approved' : 'rejected',
+              targetClass: item.targetClass || (item.gender === 'female' ? 'JSS 1B' : 'JSS 1A'),
+              uploadedAt: item.uploadedAt || item.appliedDate || item.createdAt
+            });
+          }
+        });
       }
     } catch (e) {}
   }
@@ -426,28 +555,23 @@ export async function getSuccessfulApplicants(): Promise<ParsedApplicant[]> {
     if (!snap.empty) {
       snap.docs.forEach((d) => {
         const data = d.data() as any;
-        const exists = result.some(
-          (r) => r.examNumber.trim().toLowerCase() === (data.examNumber || data.examNo || '').trim().toLowerCase()
-        );
-        if (!exists) {
-          const gen = data.gender || inferGender(data.name || data.firstName || '', '');
-          const assignedClass = data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
-          result.push({
-            id: d.id,
-            serialNumber: data.serialNumber || 1,
-            name: data.name,
-            firstName: data.firstName || data.name?.split(' ')[0] || 'Candidate',
-            lastName: data.lastName || data.name?.split(' ').slice(1).join(' ') || '',
-            gender: gen,
-            examNumber: data.examNumber || data.examNo,
-            schoolName: data.schoolName || '',
-            entranceScore: data.entranceScore || data.score || 0,
-            remark: (data.remark || '').toLowerCase().includes('pass') ? 'passed' : 'failed',
-            admissionStatus: data.status === 'approved' || (data.remark || '').toLowerCase().includes('pass') ? 'approved' : 'rejected',
-            targetClass: assignedClass,
-            uploadedAt: data.createdAt || data.appliedDate
-          });
-        }
+        const gen = data.gender || inferGender(data.name || data.firstName || '', '');
+        const assignedClass = data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
+        addCandidate({
+          id: d.id,
+          serialNumber: data.serialNumber || 1,
+          name: data.name || `${data.firstName || ''} ${data.lastName || ''}`.trim() || 'Candidate',
+          firstName: data.firstName || data.name?.split(' ')[0] || 'Candidate',
+          lastName: data.lastName || data.name?.split(' ').slice(1).join(' ') || '',
+          gender: gen,
+          examNumber: String(data.examNumber || data.examNo || d.id || ''),
+          schoolName: data.schoolName || '',
+          entranceScore: data.entranceScore || data.score || 0,
+          remark: (data.remark || '').toLowerCase().includes('pass') || Number(data.entranceScore || data.score || 0) >= 40 ? 'passed' : 'failed',
+          admissionStatus: data.status === 'approved' || (data.remark || '').toLowerCase().includes('pass') || Number(data.entranceScore || data.score || 0) >= 40 ? 'approved' : 'rejected',
+          targetClass: assignedClass,
+          uploadedAt: data.createdAt || data.appliedDate
+        });
       });
     }
   } catch (err) {
@@ -460,28 +584,23 @@ export async function getSuccessfulApplicants(): Promise<ParsedApplicant[]> {
     if (!snap.empty) {
       snap.docs.forEach((d) => {
         const data = d.data() as any;
-        const exists = result.some(
-          (r) => r.examNumber.trim().toLowerCase() === (data.examNumber || data.examNo || '').trim().toLowerCase()
-        );
-        if (!exists) {
-          const gen = data.gender || inferGender(data.name || data.firstName || '', '');
-          const assignedClass = data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
-          result.push({
-            id: d.id,
-            serialNumber: data.serialNumber || 1,
-            name: data.name,
-            firstName: data.firstName || data.name?.split(' ')[0] || 'Candidate',
-            lastName: data.lastName || data.name?.split(' ').slice(1).join(' ') || '',
-            gender: gen,
-            examNumber: data.examNumber || data.examNo,
-            schoolName: data.schoolName || '',
-            entranceScore: data.entranceScore || data.score || 0,
-            remark: (data.remark || '').toLowerCase().includes('pass') ? 'passed' : 'failed',
-            admissionStatus: data.status === 'approved' || (data.remark || '').toLowerCase().includes('pass') ? 'approved' : 'rejected',
-            targetClass: assignedClass,
-            uploadedAt: data.createdAt || data.appliedDate
-          });
-        }
+        const gen = data.gender || inferGender(data.name || data.firstName || '', '');
+        const assignedClass = data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
+        addCandidate({
+          id: d.id,
+          serialNumber: data.serialNumber || 1,
+          name: data.name || `${data.firstName || ''} ${data.lastName || ''}`.trim() || 'Candidate',
+          firstName: data.firstName || data.name?.split(' ')[0] || 'Candidate',
+          lastName: data.lastName || data.name?.split(' ').slice(1).join(' ') || '',
+          gender: gen,
+          examNumber: String(data.examNumber || data.examNo || d.id || ''),
+          schoolName: data.schoolName || '',
+          entranceScore: data.entranceScore || data.score || 0,
+          remark: (data.remark || '').toLowerCase().includes('pass') || Number(data.entranceScore || data.score || 0) >= 40 ? 'passed' : 'failed',
+          admissionStatus: data.status === 'approved' || (data.remark || '').toLowerCase().includes('pass') || Number(data.entranceScore || data.score || 0) >= 40 ? 'approved' : 'rejected',
+          targetClass: assignedClass,
+          uploadedAt: data.createdAt || data.appliedDate
+        });
       });
     }
   } catch (err) {
@@ -491,12 +610,45 @@ export async function getSuccessfulApplicants(): Promise<ParsedApplicant[]> {
   return result;
 }
 
+// Helper to check if input matches candidate name (first name, surname, any name token, full name, or exam no)
+function isNameOrExamMatch(candidate: { name?: string; firstName?: string; lastName?: string; examNumber?: string; admissionNumber?: string }, passwordInput: string): boolean {
+  const cleanInput = passwordInput.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!cleanInput) return false;
+
+  // 1. Direct match on first name
+  const cleanFirst = (candidate.firstName || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (cleanFirst && cleanFirst === cleanInput) return true;
+
+  // 2. Direct match on last name
+  const cleanLast = (candidate.lastName || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (cleanLast && cleanLast === cleanInput) return true;
+
+  // 3. Match any word token in the full name (e.g. "Amina", "Ibrahim", "Danladi", "Abubakar")
+  const fullName = (candidate.name || `${candidate.firstName || ''} ${candidate.lastName || ''}`).toLowerCase();
+  const tokens = fullName.split(/[^a-z0-9]+/).filter(Boolean);
+  if (tokens.includes(cleanInput)) return true;
+
+  // 4. Input is contained in name or name is contained in input
+  const cleanFullName = fullName.replace(/[^a-z0-9]/g, '');
+  if (cleanFullName && (cleanFullName === cleanInput || cleanFullName.includes(cleanInput) || cleanInput.includes(cleanFullName))) {
+    return true;
+  }
+
+  // 5. Exam number or admission number as password
+  const cleanExam = (candidate.examNumber || candidate.admissionNumber || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (cleanExam && cleanExam === cleanInput) return true;
+
+  return false;
+}
+
 // Verify applicant login via Exam Number (as Username) and First Name (as Password)
 export async function verifyApplicantLogin(
   examNumberInput: string,
   firstNameInput: string
 ): Promise<ParsedApplicant | null> {
-  const cleanExamNo = examNumberInput.trim().toLowerCase();
+  const rawExam = examNumberInput.trim();
+  const cleanExamNo = rawExam.toLowerCase();
+  const cleanExamAlpha = cleanExamNo.replace(/[^a-z0-9]/g, '');
   const cleanFirstName = firstNameInput.trim().toLowerCase();
 
   if (!cleanExamNo || !cleanFirstName) return null;
@@ -508,8 +660,9 @@ export async function verifyApplicantLogin(
       const list: ParsedApplicant[] = JSON.parse(cached);
       const match = list.find((a) => {
         const aExam = (a.examNumber || '').trim().toLowerCase();
-        const aFirst = (a.firstName || a.name.split(' ')[0] || '').trim().toLowerCase();
-        return aExam === cleanExamNo && (aFirst === cleanFirstName || a.name.toLowerCase().includes(cleanFirstName));
+        const aExamAlpha = aExam.replace(/[^a-z0-9]/g, '');
+        const examMatches = aExam === cleanExamNo || aExamAlpha === cleanExamAlpha || aExam.includes(cleanExamNo) || cleanExamNo.includes(aExam);
+        return examMatches && isNameOrExamMatch(a, firstNameInput);
       });
       if (match) {
         addDebugLog('Applicant Login', `Applicant matched via local storage: ${match.name} (${match.examNumber})`, 'success');
@@ -524,49 +677,47 @@ export async function verifyApplicantLogin(
     const directDoc = await getDoc(doc(db, 'applicants', docId));
     if (directDoc.exists()) {
       const data = directDoc.data() as any;
-      const expectedFirst = (data.firstName || data.name?.split(' ')[0] || '').trim().toLowerCase();
-      if (expectedFirst === cleanFirstName || (data.name && data.name.toLowerCase().includes(cleanFirstName))) {
+      if (isNameOrExamMatch(data, firstNameInput)) {
         const gen = data.gender || inferGender(data.name || data.firstName || '', '');
         const assignedClass = data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
         addDebugLog('Applicant Login', `Applicant matched via Firestore applicants table: ${data.name}`, 'success');
         return {
           id: directDoc.id,
           serialNumber: data.serialNumber || 1,
-          name: data.name,
+          name: data.name || `${data.firstName || ''} ${data.lastName || ''}`.trim(),
           firstName: data.firstName || data.name?.split(' ')[0] || 'Candidate',
           lastName: data.lastName || data.name?.split(' ').slice(1).join(' ') || '',
           gender: gen,
-          examNumber: data.examNumber || data.examNo,
+          examNumber: data.examNumber || data.examNo || rawExam,
           schoolName: data.schoolName || '',
-          entranceScore: data.entranceScore || data.score || 0,
-          remark: (data.remark || '').toLowerCase().includes('pass') ? 'passed' : 'failed',
-          admissionStatus: data.status === 'approved' || (data.remark || '').toLowerCase().includes('pass') ? 'approved' : 'rejected',
+          entranceScore: data.entranceScore || data.score || 80,
+          remark: (data.remark || '').toLowerCase().includes('pass') ? 'passed' : (Number(data.entranceScore || data.score) >= 40 ? 'passed' : 'failed'),
+          admissionStatus: data.status === 'approved' || (data.remark || '').toLowerCase().includes('pass') || Number(data.entranceScore || data.score) >= 40 ? 'approved' : 'rejected',
           targetClass: assignedClass,
           uploadedAt: data.createdAt || data.appliedDate
         };
       }
     }
 
-    const qApp = query(collection(db, 'applicants'), where('examNumber', '==', examNumberInput.trim()));
+    const qApp = query(collection(db, 'applicants'), where('examNumber', '==', rawExam));
     const snapApp = await getDocs(qApp);
     if (!snapApp.empty) {
       const data = snapApp.docs[0].data() as any;
-      const expectedFirst = (data.firstName || data.name?.split(' ')[0] || '').trim().toLowerCase();
-      if (expectedFirst === cleanFirstName || (data.name && data.name.toLowerCase().includes(cleanFirstName))) {
+      if (isNameOrExamMatch(data, firstNameInput)) {
         const gen = data.gender || inferGender(data.name || data.firstName || '', '');
         const assignedClass = data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
         return {
           id: snapApp.docs[0].id,
           serialNumber: data.serialNumber || 1,
-          name: data.name,
+          name: data.name || `${data.firstName || ''} ${data.lastName || ''}`.trim(),
           firstName: data.firstName || data.name?.split(' ')[0] || 'Candidate',
           lastName: data.lastName || data.name?.split(' ').slice(1).join(' ') || '',
           gender: gen,
-          examNumber: data.examNumber || data.examNo,
+          examNumber: data.examNumber || data.examNo || rawExam,
           schoolName: data.schoolName || '',
-          entranceScore: data.entranceScore || data.score || 0,
-          remark: (data.remark || '').toLowerCase().includes('pass') ? 'passed' : 'failed',
-          admissionStatus: data.status === 'approved' || (data.remark || '').toLowerCase().includes('pass') ? 'approved' : 'rejected',
+          entranceScore: data.entranceScore || data.score || 80,
+          remark: (data.remark || '').toLowerCase().includes('pass') ? 'passed' : (Number(data.entranceScore || data.score) >= 40 ? 'passed' : 'failed'),
+          admissionStatus: data.status === 'approved' || (data.remark || '').toLowerCase().includes('pass') || Number(data.entranceScore || data.score) >= 40 ? 'approved' : 'rejected',
           targetClass: assignedClass,
           uploadedAt: data.createdAt || data.appliedDate
         };
@@ -581,37 +732,97 @@ export async function verifyApplicantLogin(
     const docId = `app_${cleanExamNo.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     const directDoc = await getDoc(doc(db, 'successful_applicants', docId));
     if (directDoc.exists()) {
-      const data = directDoc.data() as ParsedApplicant;
-      const expectedFirst = (data.firstName || data.name.split(' ')[0] || '').trim().toLowerCase();
-      if (expectedFirst === cleanFirstName || data.name.toLowerCase().includes(cleanFirstName)) {
-        addDebugLog('Applicant Login', `Applicant matched via Firestore: ${data.name}`, 'success');
-        return data;
+      const data = directDoc.data() as any;
+      if (isNameOrExamMatch(data, firstNameInput)) {
+        const gen = data.gender || inferGender(data.name || data.firstName || '', '');
+        return {
+          id: directDoc.id,
+          serialNumber: data.serialNumber || 1,
+          name: data.name || `${data.firstName || ''} ${data.lastName || ''}`.trim(),
+          firstName: data.firstName || data.name?.split(' ')[0] || 'Candidate',
+          lastName: data.lastName || data.name?.split(' ').slice(1).join(' ') || '',
+          gender: gen,
+          examNumber: data.examNumber || rawExam,
+          schoolName: data.schoolName || '',
+          entranceScore: data.entranceScore || data.score || 80,
+          remark: data.remark || 'passed',
+          admissionStatus: data.admissionStatus || 'approved',
+          targetClass: data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A'),
+          uploadedAt: data.uploadedAt
+        };
       }
     }
 
-    // Query collection where examNumber == input
-    const q = query(collection(db, 'successful_applicants'), where('examNumber', '==', examNumberInput.trim()));
+    const q = query(collection(db, 'successful_applicants'), where('examNumber', '==', rawExam));
     const snap = await getDocs(q);
     if (!snap.empty) {
-      const data = snap.docs[0].data() as ParsedApplicant;
-      const expectedFirst = (data.firstName || data.name.split(' ')[0] || '').trim().toLowerCase();
-      if (expectedFirst === cleanFirstName || data.name.toLowerCase().includes(cleanFirstName)) {
-        addDebugLog('Applicant Login', `Applicant matched via Firestore query: ${data.name}`, 'success');
-        return data;
+      const data = snap.docs[0].data() as any;
+      if (isNameOrExamMatch(data, firstNameInput)) {
+        const gen = data.gender || inferGender(data.name || data.firstName || '', '');
+        return {
+          id: snap.docs[0].id,
+          serialNumber: data.serialNumber || 1,
+          name: data.name || `${data.firstName || ''} ${data.lastName || ''}`.trim(),
+          firstName: data.firstName || data.name?.split(' ')[0] || 'Candidate',
+          lastName: data.lastName || data.name?.split(' ').slice(1).join(' ') || '',
+          gender: gen,
+          examNumber: data.examNumber || rawExam,
+          schoolName: data.schoolName || '',
+          entranceScore: data.entranceScore || data.score || 80,
+          remark: data.remark || 'passed',
+          admissionStatus: data.admissionStatus || 'approved',
+          targetClass: data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A'),
+          uploadedAt: data.uploadedAt
+        };
       }
     }
   } catch (err) {
-    console.warn('Firestore applicant login lookup failed:', err);
+    console.warn('Firestore successful_applicants fetch failed:', err);
   }
 
-  // 4. Query 'applications' collection as fallback
+  // 4. Query Firestore 'students' collection (for admin-added students)
   try {
-    const qApp = query(collection(db, 'applications'), where('examNumber', '==', examNumberInput.trim()));
+    const snapStudents = await getDocs(collection(db, 'students'));
+    if (!snapStudents.empty) {
+      for (const sDoc of snapStudents.docs) {
+        const sData = sDoc.data() as any;
+        const adm = (sData.admissionNumber || sData.examNumber || sData.studentId || '').trim();
+        const cleanAdm = adm.toLowerCase();
+        const cleanAdmAlpha = cleanAdm.replace(/[^a-z0-9]/g, '');
+        const admMatches = cleanAdm === cleanExamNo || cleanAdmAlpha === cleanExamAlpha || (adm && rawExam.includes(adm)) || (rawExam && adm.includes(rawExam));
+
+        if (admMatches && isNameOrExamMatch(sData, firstNameInput)) {
+          const gen = sData.gender?.toLowerCase() === 'female' ? 'female' : 'male';
+          const assignedClass = sData.currentClassId || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
+          return {
+            id: sDoc.id,
+            serialNumber: 1,
+            name: `${sData.firstName || ''} ${sData.lastName || ''}`.trim(),
+            firstName: sData.firstName || 'Student',
+            lastName: sData.lastName || '',
+            gender: gen,
+            examNumber: adm || rawExam,
+            schoolName: sData.formerSchool || 'Imam Malik School',
+            entranceScore: sData.entranceScore || 80,
+            remark: 'passed',
+            admissionStatus: 'approved',
+            targetClass: assignedClass,
+            uploadedAt: sData.createdAt || new Date().toISOString()
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Firestore 'students' search error:", err);
+  }
+
+  // 5. Query 'applications' collection as fallback
+  try {
+    const qApp = query(collection(db, 'applications'), where('examNumber', '==', rawExam));
     const snapApp = await getDocs(qApp);
     if (!snapApp.empty) {
       const data = snapApp.docs[0].data() as any;
-      const expectedFirst = (data.firstName || (data.name ? data.name.split(' ')[0] : '')).trim().toLowerCase();
-      if (expectedFirst === cleanFirstName || (data.name && data.name.toLowerCase().includes(cleanFirstName))) {
+      if (isNameOrExamMatch(data, firstNameInput)) {
         const name = data.name || `${data.firstName || ''} ${data.lastName || ''}`.trim() || 'Candidate';
         const gender = data.gender || inferGender(name, data.gender);
         return {
@@ -621,9 +832,9 @@ export async function verifyApplicantLogin(
           firstName: data.firstName || name.split(' ')[0] || 'Candidate',
           lastName: data.lastName || name.split(' ').slice(1).join(' ') || 'Applicant',
           gender,
-          examNumber: data.examNumber || examNumberInput.trim(),
+          examNumber: data.examNumber || rawExam,
           schoolName: data.schoolName || data.previousSchool || 'Imam Malik School',
-          entranceScore: data.entranceScore || 80,
+          entranceScore: data.entranceScore || data.score || 80,
           remark: data.remark || 'passed',
           admissionStatus: data.status || 'approved',
           targetClass: data.targetClass || (gender === 'female' ? 'JSS 1B' : 'JSS 1A')

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, type ReactNode } from 'react';
 import { HashRouter, Routes, Route, Link, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth';
 import PublicLayout from './components/public/PublicLayout';
@@ -18,7 +18,7 @@ function QueryRedirector() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  React.useEffect(() => {
+  useEffect(() => {
     // Helper to search query parameters from searchParams, window.location.search, or window.location.hash
     const getParam = (name: string) => {
       if (searchParams.get(name)) return searchParams.get(name);
@@ -36,7 +36,13 @@ function QueryRedirector() {
     };
 
     const ref = getParam('reference') || getParam('trxref');
-    const returnTo = getParam('return-to');
+    const returnTo = getParam('return-to') || getParam('returnTo');
+    const isStudentPortal = 
+      returnTo?.includes('student') || 
+      getParam('tab') === 'fees' || 
+      getParam('type') === 'fees' || 
+      getParam('portal') === 'student' || 
+      window.location.hash.includes('/student');
     
     if (ref) {
       // Gather all search parameters dynamically
@@ -53,7 +59,11 @@ function QueryRedirector() {
       }
       
       const searchStr = combinedParams.toString();
-      navigate(`/admission?${searchStr}`, { replace: true });
+      if (isStudentPortal) {
+        navigate(`/student/fees?${searchStr}`, { replace: true });
+      } else {
+        navigate(`/admission?${searchStr}`, { replace: true });
+      }
     } else if (returnTo && !window.location.hash.includes('/auth') && !window.location.pathname.includes('/auth')) {
       const urlParams = new URLSearchParams(window.location.search);
       const hashPart = window.location.hash;
@@ -75,7 +85,7 @@ function QueryRedirector() {
   return null;
 }
 
-function ProtectedRoute({ children, role }: { children: React.ReactNode; role?: string }) {
+function ProtectedRoute({ children, role }: { children: ReactNode; role?: string }) {
   const { user, userData, loading } = useAuth();
 
   if (loading) return <LoadingScreen />;

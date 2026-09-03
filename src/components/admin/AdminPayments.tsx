@@ -35,7 +35,7 @@ export default function AdminPayments() {
     session: '2026/2027',
     type: '1st Term Tuition Fee',
     amount: 12000,
-    paymentMethod: 'Paystack (njvkcjper)',
+    paymentMethod: 'Paystack (imammalikcollege)',
     paystackReference: '',
     status: 'verified',
   });
@@ -58,12 +58,21 @@ export default function AdminPayments() {
     const fetchApplicants = async () => {
       try {
         const snap = await getDocs(collection(db, "successful_applicants"));
+        let rawList: any[] = [];
         if (!snap.empty) {
-          setApplicantsList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+          rawList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         } else {
           const snap2 = await getDocs(collection(db, "applicants"));
-          setApplicantsList(snap2.docs.map(d => ({ id: d.id, ...d.data() })));
+          rawList = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
         }
+        const seen = new Set<string>();
+        const unique = rawList.filter((item, idx) => {
+          const k = String(item.id || item.examNumber || item.examNo || `app_${idx}`).trim().toLowerCase();
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+        setApplicantsList(unique);
       } catch (e) {
         console.warn("Could not fetch applicants list for auto-complete:", e);
       }
@@ -201,7 +210,7 @@ export default function AdminPayments() {
     
     doc.setFont("helvetica", "normal");
     doc.text("Payment Method:", 30, 145);
-    doc.text(`${p.paymentMethod || 'Paystack Online (njvkcjper)'}`, 80, 145);
+    doc.text(`${p.paymentMethod || 'Paystack Online (imammalikcollege)'}`, 80, 145);
 
     // QR Code
     try {
@@ -281,7 +290,7 @@ export default function AdminPayments() {
     doc.text(`Filter Session: ${selectedSession}`, 85, 50);
     doc.text(`Filter Category: ${selectedFeeCategory.toUpperCase()}`, 155, 44);
     doc.text(`Total Records: ${filteredPayments.length} student transaction(s)`, 155, 50);
-    doc.text(`Authorized Gateway: Paystack (paystack.shop/pay/njvkcjper)`, 220, 44);
+    doc.text(`Authorized Gateway: Paystack (paystack.shop/pay/imammalikcollege)`, 220, 44);
     doc.text(`Status: VERIFIED AUDIT`, 220, 50);
 
     // Summary Revenue Strip
@@ -444,7 +453,7 @@ export default function AdminPayments() {
         session: '2026/2027',
         type: '1st Term Tuition Fee',
         amount: 12000,
-        paymentMethod: 'Paystack (njvkcjper)',
+        paymentMethod: 'Paystack (imammalikcollege)',
         paystackReference: '',
         status: 'verified',
       });
@@ -486,7 +495,7 @@ export default function AdminPayments() {
           session: '2026/2027',
           type: '1st Term Tuition Fee',
           amount: 12000,
-          paymentMethod: 'Paystack Online (njvkcjper)',
+          paymentMethod: 'Paystack Online (imammalikcollege)',
           paystackReference: `PAY-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
           receiptNumber: `REC-TUI-${Math.floor(100000 + Math.random() * 900000)}`,
           status: 'verified',
@@ -504,7 +513,7 @@ export default function AdminPayments() {
           session: '2026/2027 - 2028/2029',
           type: 'College Development Levy (Once for 3 Yrs)',
           amount: 3000,
-          paymentMethod: 'Paystack Online (njvkcjper)',
+          paymentMethod: 'Paystack Online (imammalikcollege)',
           paystackReference: `PAY-DEV-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
           receiptNumber: `REC-DEV-${Math.floor(100000 + Math.random() * 900000)}`,
           status: 'verified',
@@ -587,12 +596,12 @@ export default function AdminPayments() {
           </div>
         </div>
         <a 
-          href="https://paystack.shop/pay/njvkcjper" 
+          href="https://paystack.shop/pay/imammalikcollege" 
           target="_blank" 
           rel="noreferrer"
           className="px-3.5 py-2 bg-emerald-950 hover:bg-emerald-900 text-amber-400 text-xs font-bold rounded-xl flex items-center gap-1.5 shrink-0 shadow-xs"
         >
-          <ExternalLink size={14} /> Paystack (njvkcjper)
+          <ExternalLink size={14} /> Paystack (imammalikcollege)
         </a>
       </div>
 
@@ -772,12 +781,12 @@ export default function AdminPayments() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 text-xs">
-                {filteredPayments.map((p) => {
+                {filteredPayments.map((p, idx) => {
                   const classVal = p.classId || (p.gender === 'female' ? 'JSS 1B' : 'JSS 1A');
                   const isMale = classVal.includes('1A') || p.gender === 'male';
 
                   return (
-                    <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
+                    <tr key={`${p.id || 'payment'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-6 py-4 font-mono font-bold text-slate-700 truncate max-w-[140px]">
                         {p.receiptNumber || p.id}
                       </td>
@@ -908,8 +917,8 @@ export default function AdminPayments() {
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium"
                   >
                     <option value="">-- Choose from uploaded candidate list --</option>
-                    {applicantsList.map(a => (
-                      <option key={a.id} value={a.id}>
+                    {applicantsList.map((a, idx) => (
+                      <option key={`${a.id || 'app'}-${a.examNumber || idx}`} value={a.id}>
                         {a.name || `${a.firstName || ''} ${a.lastName || ''}`} ({a.examNumber || a.id})
                       </option>
                     ))}
@@ -1041,7 +1050,7 @@ export default function AdminPayments() {
                     onChange={(e) => setNewPayment(prev => ({ ...prev, paymentMethod: e.target.value }))}
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
                   >
-                    <option value="Paystack (njvkcjper)">Paystack (paystack.shop/pay/njvkcjper)</option>
+                    <option value="Paystack (imammalikcollege)">Paystack (paystack.shop/pay/imammalikcollege)</option>
                     <option value="Direct Bank Transfer">Direct Bank Transfer</option>
                     <option value="Cash at Bursary Desk">Cash at Bursary Desk</option>
                   </select>
