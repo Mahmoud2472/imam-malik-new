@@ -24,6 +24,14 @@ export function DiagnosticsConsole() {
   }, [logs, isOpen, activeTab]);
 
   const forceAuthenticate = async (role: 'admin' | 'applicant') => {
+    if (role === 'admin') {
+      const enteredPassword = window.prompt('Strict Administrator Access: Enter admin password (admin123):');
+      if (enteredPassword !== 'admin123') {
+        alert('Access Denied: Incorrect administrator password. Password must be admin123.');
+        return;
+      }
+    }
+
     addDebugLog('Debug System', `Executing Force Authenticate Override: "${role}"`, 'warn');
     
     // Switch to mock mode if not already

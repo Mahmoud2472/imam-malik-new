@@ -44,9 +44,10 @@ export default function PaystackCheckoutModal({
   onPaymentSuccess
 }: PaystackCheckoutModalProps) {
   const { user, userData } = useAuth();
-  const [activeTab, setActiveTab] = useState<'inline' | 'link' | 'transfer' | 'redirect_guide'>('inline');
+  const [activeTab, setActiveTab] = useState<'paystack' | 'redirect_guide'>('paystack');
   const [isProcessing, setIsProcessing] = useState(false);
   const [referenceInput, setReferenceInput] = useState('');
+  const [hasOpenedLink, setHasOpenedLink] = useState(false);
   const [copiedAccount, setCopiedAccount] = useState(false);
   const [copiedRedirectUrl, setCopiedRedirectUrl] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -166,8 +167,8 @@ export default function PaystackCheckoutModal({
       const hasPaystack = !!(window as any).PaystackPop;
 
       if (!scriptReady && !hasPaystack) {
-        setErrorMessage("Paystack inline popup was blocked by browser or connection. Switched to direct payment link.");
-        setActiveTab('link');
+        setErrorMessage("Switched to official Paystack payment link.");
+        setActiveTab('paystack');
         setIsProcessing(false);
         return;
       }
@@ -226,8 +227,8 @@ export default function PaystackCheckoutModal({
       }
     } catch (err: any) {
       console.error("Paystack inline popup execution error:", err);
-      setErrorMessage("Could not launch inline popup. You can use the Direct Paystack Link or Bank Transfer options below.");
-      setActiveTab('link');
+      setErrorMessage("Please use the official Paystack payment link below.");
+      setActiveTab('paystack');
       setIsProcessing(false);
     }
   };
@@ -313,17 +314,11 @@ export default function PaystackCheckoutModal({
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!referenceInput.trim()) {
-      setErrorMessage("Please enter the transaction reference code or teller number.");
+      setErrorMessage("Please enter the Paystack transaction reference code.");
       return;
     }
-    const method = activeTab === 'transfer' ? 'Direct Bank Transfer / Deposit' : 'Paystack Online (paystack.shop/pay/imammalikcollege)';
+    const method = 'Paystack Online (paystack.shop/pay/imammalikcollege)';
     await finalizeSuccessfulPayment(referenceInput.trim(), method);
-  };
-
-  const copyAccountNumber = () => {
-    navigator.clipboard.writeText('1018294821');
-    setCopiedAccount(true);
-    setTimeout(() => setCopiedAccount(false), 2500);
   };
 
   return (
@@ -503,53 +498,29 @@ export default function PaystackCheckoutModal({
           </div>
 
           {/* Payment Method Selector Tabs */}
-          <div className="grid grid-cols-4 bg-slate-100 p-1.5 border-b border-slate-200 text-xs font-bold">
+          <div className="grid grid-cols-2 bg-slate-100 p-1.5 border-b border-slate-200 text-xs font-bold">
             <button
               type="button"
-              onClick={() => { setActiveTab('inline'); setErrorMessage(null); }}
+              onClick={() => { setActiveTab('paystack'); setErrorMessage(null); }}
               className={cn(
-                "py-2.5 px-1.5 rounded-xl flex items-center justify-center gap-1 transition-all text-center cursor-pointer text-[11px]",
-                activeTab === 'inline' ? "bg-white text-emerald-950 shadow-xs font-black" : "text-slate-500 hover:text-slate-800"
+                "py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all text-center cursor-pointer text-xs",
+                activeTab === 'paystack' ? "bg-white text-emerald-950 shadow-xs font-black" : "text-slate-500 hover:text-slate-800"
               )}
             >
-              <CreditCard size={13} className={activeTab === 'inline' ? "text-emerald-600" : ""} />
-              <span>Instant Popup</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setActiveTab('link'); setErrorMessage(null); }}
-              className={cn(
-                "py-2.5 px-1.5 rounded-xl flex items-center justify-center gap-1 transition-all text-center cursor-pointer text-[11px]",
-                activeTab === 'link' ? "bg-white text-emerald-950 shadow-xs font-black" : "text-slate-500 hover:text-slate-800"
-              )}
-            >
-              <ExternalLink size={13} className={activeTab === 'link' ? "text-emerald-600" : ""} />
-              <span>Direct Link</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setActiveTab('transfer'); setErrorMessage(null); }}
-              className={cn(
-                "py-2.5 px-1.5 rounded-xl flex items-center justify-center gap-1 transition-all text-center cursor-pointer text-[11px]",
-                activeTab === 'transfer' ? "bg-white text-emerald-950 shadow-xs font-black" : "text-slate-500 hover:text-slate-800"
-              )}
-            >
-              <Landmark size={13} className={activeTab === 'transfer' ? "text-emerald-600" : ""} />
-              <span>Bank Transfer</span>
+              <CreditCard size={14} className={activeTab === 'paystack' ? "text-emerald-600" : ""} />
+              <span>Paystack (paystack.shop/pay/imammalikcollege)</span>
             </button>
 
             <button
               type="button"
               onClick={() => { setActiveTab('redirect_guide'); setErrorMessage(null); }}
               className={cn(
-                "py-2.5 px-1.5 rounded-xl flex items-center justify-center gap-1 transition-all text-center cursor-pointer text-[11px]",
+                "py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all text-center cursor-pointer text-xs",
                 activeTab === 'redirect_guide' ? "bg-white text-emerald-950 shadow-xs font-black" : "text-slate-500 hover:text-slate-800"
               )}
             >
-              <ArrowRight size={13} className={activeTab === 'redirect_guide' ? "text-amber-600" : ""} />
-              <span>Callback Link</span>
+              <ArrowRight size={14} className={activeTab === 'redirect_guide' ? "text-amber-600" : ""} />
+              <span>Paystack Callback Guide</span>
             </button>
           </div>
 
@@ -565,159 +536,96 @@ export default function PaystackCheckoutModal({
               </div>
             )}
 
-            {/* TAB 1: INSTANT PAYSTACK POPUP */}
-            {activeTab === 'inline' && (
+            {/* TAB 1: OFFICIAL PAYSTACK ONLINE LINK & RECORDING */}
+            {activeTab === 'paystack' && (
               <div className="space-y-4">
-                <div className="p-4 bg-emerald-50/70 rounded-2xl border border-emerald-100 text-xs space-y-2">
-                  <div className="flex items-center gap-2 text-emerald-950 font-bold">
-                    <Sparkles size={16} className="text-emerald-600" />
-                    <span>Instant Automated Processing</span>
+                <div className="p-4 bg-emerald-50/80 rounded-2xl border border-emerald-200 text-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-emerald-950 font-bold">
+                      <Sparkles size={16} className="text-emerald-600" />
+                      <span>Official College Payment Channel</span>
+                    </div>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase rounded-full">
+                      Paystack Exclusive
+                    </span>
                   </div>
-                  <p className="text-slate-600 text-[11px] leading-relaxed">
-                    Pay securely for <strong>{currentItem.title}</strong> ({selectedTerm}, {selectedSession}, {selectedClass}) using any Nigerian Debit Card, Bank App Transfer, USSD, or QR.
+
+                  <p className="text-slate-700 text-xs leading-relaxed">
+                    All student fee payments for <strong>{currentItem.title}</strong> must be paid directly via the official college Paystack page:
                   </p>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <span className="px-2 py-0.5 bg-white border border-emerald-200 text-emerald-800 text-[10px] font-bold rounded">💳 Debit Cards</span>
-                    <span className="px-2 py-0.5 bg-white border border-emerald-200 text-emerald-800 text-[10px] font-bold rounded">📱 USSD Banking</span>
-                    <span className="px-2 py-0.5 bg-white border border-emerald-200 text-emerald-800 text-[10px] font-bold rounded">🏦 Bank Account Transfer</span>
+
+                  <div className="bg-white p-3 rounded-xl border border-emerald-200 flex items-center justify-between gap-2">
+                    <code className="text-xs font-mono font-bold text-emerald-950 break-all select-all">
+                      https://paystack.shop/pay/imammalikcollege
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText('https://paystack.shop/pay/imammalikcollege');
+                        setCopiedAccount(true);
+                        setTimeout(() => setCopiedAccount(false), 2000);
+                      }}
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold shrink-0 flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      {copiedAccount ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                      <span>{copiedAccount ? "Copied" : "Copy"}</span>
+                    </button>
                   </div>
-                </div>
 
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={handlePaystackInline}
-                    disabled={isProcessing}
-                    className="w-full py-4 bg-emerald-800 hover:bg-emerald-900 text-white rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 hover:scale-[1.01] active:scale-98 transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 size={18} className="animate-spin" />
-                        <span>Opening Paystack Checkout...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 size={18} />
-                        <span>Pay {formatCurrency(currentItem.amount)} Online Now</span>
-                      </>
-                    )}
-                  </button>
-                  <p className="text-center text-[11px] text-slate-400 mt-2">
-                    Secured by 256-Bit SSL Encryption • Instant official receipt generation
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: DIRECT PAYSTACK LINK */}
-            {activeTab === 'link' && (
-              <div className="space-y-4">
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-3">
-                  <p className="text-slate-700 leading-relaxed">
-                    Click the official school Paystack checkout page link below to complete your payment in a new tab:
-                  </p>
                   <a
                     href="https://paystack.shop/pay/imammalikcollege"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-full bg-amber-500 hover:bg-amber-400 text-emerald-950 py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm transition-all hover:scale-[1.01]"
+                    onClick={() => setHasOpenedLink(true)}
+                    className="w-full bg-emerald-800 hover:bg-emerald-900 text-white py-3.5 px-4 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-md shadow-emerald-900/10 transition-all hover:scale-[1.01] active:scale-98 cursor-pointer"
                   >
                     <ExternalLink size={16} />
-                    Open Paystack Page (paystack.shop/pay/imammalikcollege)
+                    <span>Open Paystack & Pay {formatCurrency(currentItem.amount)}</span>
                   </a>
+
+                  {hasOpenedLink && (
+                    <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px] flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                      <span>Paystack payment tab opened! Once payment is complete, enter your Transaction Reference below.</span>
+                    </div>
+                  )}
                 </div>
 
-                <form onSubmit={handleManualSubmit} className="space-y-3 pt-2">
+                {/* Reference Code Verification & Stamped Receipt Generation Form */}
+                <form onSubmit={handleManualSubmit} className="space-y-3 pt-1">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                      Transaction Reference / Confirmation Code
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      Paystack Transaction Reference / Code <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. PAY-9823412 or T9823412984"
+                      placeholder="e.g. PAY-12345678 or T123456789"
                       value={referenceInput}
                       onChange={(e) => setReferenceInput(e.target.value)}
-                      className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono text-xs uppercase font-bold"
+                      className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono text-xs uppercase font-bold tracking-wider"
                     />
                     <span className="text-[10px] text-slate-400 mt-1 block">
-                      Found in your Paystack email notification or completion screen.
+                      Found on your Paystack payment confirmation screen or in your email receipt.
                     </span>
                   </div>
 
                   <button
                     type="submit"
                     disabled={isProcessing}
-                    className="w-full py-3.5 bg-emerald-900 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer disabled:opacity-50"
+                    className="w-full py-3.5 bg-emerald-950 hover:bg-emerald-900 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer disabled:opacity-50"
                   >
-                    {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
-                    <span>Confirm & Update Ledger</span>
-                  </button>
-                </form>
-              </div>
-            )}
-
-            {/* TAB 3: DIRECT SCHOOL BANK TRANSFER */}
-            {activeTab === 'transfer' && (
-              <div className="space-y-4">
-                <div className="p-4 bg-amber-50/80 rounded-2xl border border-amber-200 text-xs space-y-3">
-                  <div className="flex items-center gap-2 text-amber-950 font-bold">
-                    <Landmark size={16} className="text-amber-700" />
-                    <span>Official College Bank Account Details</span>
-                  </div>
-
-                  <div className="bg-white p-3.5 rounded-xl border border-amber-200 space-y-2 text-slate-700">
-                    <div className="flex justify-between items-center text-[11px]">
-                      <span className="text-slate-400">Account Name:</span>
-                      <span className="font-bold text-slate-900 text-right">IMAM MALIK SCIENCE & TAHFIZ COLLEGE</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[11px]">
-                      <span className="text-slate-400">Bank Name:</span>
-                      <span className="font-bold text-slate-900">Stanbic IBTC Bank / Zenith Bank</span>
-                    </div>
-                    <div className="flex justify-between items-center pt-2 border-t border-slate-100">
-                      <div>
-                        <span className="text-[10px] text-slate-400 font-bold block uppercase">Account Number</span>
-                        <span className="font-mono font-black text-base text-emerald-950 tracking-wider">1018294821</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={copyAccountNumber}
-                        className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        {copiedAccount ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
-                        <span>{copiedAccount ? "Copied!" : "Copy"}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <p className="text-[11px] text-amber-900 leading-relaxed">
-                    Make your transfer of <strong>{formatCurrency(currentItem.amount)}</strong>, then enter your Transaction Reference, Session ID, or Depositor's Name below for immediate recording:
-                  </p>
-                </div>
-
-                <form onSubmit={handleManualSubmit} className="space-y-3">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                      Bank Transfer Reference / Session ID / Depositor Name
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. TRF-10928374 or Ibrahim Adamu"
-                      value={referenceInput}
-                      onChange={(e) => setReferenceInput(e.target.value)}
-                      className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-mono text-xs uppercase font-bold"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={isProcessing}
-                    className="w-full py-3.5 bg-emerald-900 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
-                    <span>Submit Transfer Proof & Issue Receipt</span>
+                    {isProcessing ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        <span>Verifying & Recording Payment...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck size={16} />
+                        <span>Verify Reference & Issue Stamped Receipt</span>
+                      </>
+                    )}
                   </button>
                 </form>
               </div>

@@ -13,32 +13,58 @@ import { formatCurrency, cn, formatDate } from '../../lib/utils';
 import AdminStatusDashboard from './AdminStatusDashboard';
 import BulkAdmissionLettersModal from './modals/BulkAdmissionLettersModal';
 
-const data = [
-  { name: 'Jan', revenue: 4000, students: 240 },
-  { name: 'Feb', revenue: 3000, students: 238 },
-  { name: 'Mar', revenue: 7000, students: 250 },
-  { name: 'Apr', revenue: 8000, students: 270 },
-  { name: 'May', revenue: 12000, students: 300 },
-];
-
 export default function AdminOverview() {
   const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalRevenue: 0,
     pendingApps: 0,
-    activeTeachers: 38
+    activeTeachers: 0
   });
   const [recentPayments, setRecentPayments] = useState<any[]>([]);
   const [recentApps, setRecentApps] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'all' | 'apps' | 'payments'>('all');
   const [isBulkPdfModalOpen, setIsBulkPdfModalOpen] = useState(false);
 
+  // Compute dynamic chart data based on real verified payments
+  const chartData = React.useMemo(() => {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const now = new Date();
+    const result = [];
+
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      result.push({
+        monthIndex: d.getMonth(),
+        year: d.getFullYear(),
+        name: monthNames[d.getMonth()],
+        revenue: 0,
+        students: 0
+      });
+    }
+
+    recentPayments.forEach(p => {
+      if (!p.timestamp) return;
+      const pDate = new Date(p.timestamp);
+      if (isNaN(pDate.getTime())) return;
+      const found = result.find(r => r.monthIndex === pDate.getMonth() && r.year === pDate.getFullYear());
+      if (found) {
+        found.revenue += (p.amount || 0);
+      }
+    });
+
+    return result;
+  }, [recentPayments]);
+
   useEffect(() => {
     // Real-time stats listeners
     const unsubStudents = onSnapshot(collection(db, "students"), (snap) => {
       setStats(prev => ({ ...prev, totalStudents: snap.size }));
     });
+
+    const unsubTeachers = onSnapshot(collection(db, "teachers"), (snap) => {
+      setStats(prev => ({ ...prev, activeTeachers: snap.size }));
+    }, () => {});
 
     const unsubApps = onSnapshot(collection(db, "applications"), (snap) => {
       setStats(prev => ({ ...prev, pendingApps: snap.docs.filter(d => d.data().status === 'pending').length }));
@@ -85,6 +111,7 @@ export default function AdminOverview() {
 
     return () => {
       unsubStudents();
+      unsubTeachers();
       unsubApps();
       unsubAppsList();
       unsubPayments();
@@ -240,7 +267,7 @@ export default function AdminOverview() {
           </div>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data}>
+              <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#065f46" stopOpacity={0.1}/>

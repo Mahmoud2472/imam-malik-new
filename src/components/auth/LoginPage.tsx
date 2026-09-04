@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   GraduationCap, Mail, Lock, Loader2, ArrowLeft, Landmark, 
   UserPlus, LogIn, Shield, BookOpen, Users, UserCheck, 
-  FileSpreadsheet, KeyRound, Sparkles, CheckCircle2, AlertCircle
+  FileSpreadsheet, KeyRound, Sparkles, CheckCircle2, AlertCircle,
+  Eye, EyeOff
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { addDebugLog } from '../../lib/debug';
@@ -16,7 +17,8 @@ import { sendRegistrationEmail, requestPasswordResetOTP, verifyPasswordResetOTP 
 export default function LoginPage() {
   const { signInSession } = useAuth();
   const [searchParams] = useSearchParams();
-  const [authType, setAuthType] = useState<'student-exam' | 'email'>('student-exam');
+  const [authType, setAuthType] = useState<'student-exam' | 'email' | 'admin'>('student-exam');
+  const [showPassword, setShowPassword] = useState(false);
   const [examNumber, setExamNumber] = useState('');
   const [firstNamePassword, setFirstNamePassword] = useState('');
   const [email, setEmail] = useState('');
@@ -57,41 +59,20 @@ export default function LoginPage() {
     if (qMode === 'register') setMode('register');
     else if (qMode === 'login') setMode('login');
 
-    // Load available applicants for quick-testing sample hints
+    const qPortal = searchParams.get('portal');
+    const qRole = searchParams.get('role');
+    const returnTo = searchParams.get('return-to');
+    if (qPortal === 'admin' || qRole === 'admin' || returnTo?.includes('admin')) {
+      setAuthType('admin');
+      setEmail('admin@school.com');
+    }
+
+    // Load available applicants if real records exist in database
     getSuccessfulApplicants().then(list => {
       if (list && list.length > 0) {
         setSampleApplicants(list.slice(0, 3));
       } else {
-        // Fallback default sample applicants
-        const defaultSamples: ParsedApplicant[] = [
-          {
-            serialNumber: 1,
-            name: 'Amina Ibrahim Danladi',
-            firstName: 'Amina',
-            lastName: 'Ibrahim Danladi',
-            gender: 'female',
-            examNumber: 'IMSC/2026/001',
-            schoolName: 'Al-Huda Model Primary School',
-            entranceScore: 84,
-            remark: 'passed',
-            admissionStatus: 'approved',
-            targetClass: 'JSS 1B'
-          },
-          {
-            serialNumber: 2,
-            name: 'Umar Farouk Bello',
-            firstName: 'Umar',
-            lastName: 'Farouk Bello',
-            gender: 'male',
-            examNumber: 'IMSC/2026/002',
-            schoolName: 'Kano Capital Academy',
-            entranceScore: 78,
-            remark: 'passed',
-            admissionStatus: 'approved',
-            targetClass: 'JSS 1A'
-          }
-        ];
-        setSampleApplicants(defaultSamples);
+        setSampleApplicants([]);
       }
     });
   }, [searchParams]);
@@ -215,163 +196,33 @@ export default function LoginPage() {
     }
   };
 
-  // Direct Snappy Demo Quick Logins
-  const handleDemoLogin = async (role: 'admin' | 'teacher' | 'student' | 'applicant') => {
-    setLoading(true);
-    setLoadingStatus(`Loading sample ${role} data...`);
-    setError(null);
-    setSuccess(null);
-    
-    let targetEmail = '';
-    let targetName = '';
-    let id = `mock-${role}-id`;
-    
-    if (role === 'admin') {
-      targetEmail = 'admin@school.com';
-      targetName = 'Principal Administrator';
-    } else if (role === 'teacher') {
-      targetEmail = 'teacher@school.com';
-      targetName = 'Mr. Okonjo';
-    } else if (role === 'student') {
-      targetEmail = 'student@school.com';
-      targetName = 'Amina Ibrahim Danladi';
-    } else {
-      targetEmail = 'applicant@school.com';
-      targetName = 'Demola Audu';
-    }
-    
-    const cacheKey = `imsc_user_data_${id}`;
-    
-    let mockProfile: any = {
-      role,
-      displayName: targetName,
-      email: targetEmail,
-      createdAt: new Date().toISOString()
-    };
-    
-    if (role === 'student') {
-      mockProfile = {
-        ...mockProfile,
-        studentId: 'IMSC/2026/001',
-        examNumber: 'IMSC/2026/001',
-        firstName: 'Amina',
-        lastName: 'Ibrahim Danladi',
-        admissionStatus: 'approved',
-        targetClass: 'JSS 1',
-        targetClassId: 'jss1',
-        schoolName: 'Al-Huda Model Primary School',
-        entranceScore: 84,
-        registrationFee: 12000,
-        developmentFee: 3000,
-        totalRegistrationFee: 15000
-      };
-    } else if (role === 'teacher') {
-      mockProfile = {
-        ...mockProfile,
-        teacherId: 'TCH-2026-009'
-      };
-    } else if (role === 'applicant') {
-      mockProfile = {
-        ...mockProfile,
-        admissionStatus: 'pending',
-        targetClass: 'JSS 1'
-      };
-    }
-    
-    safeStorage.setItem(cacheKey, JSON.stringify(mockProfile));
-    safeStorage.setItem('imsc_active_user_id', id);
-    
-    await signInSession(id, targetEmail, targetName, role);
-    
-    try {
-      await supabase.auth.signInWithPassword({ email: targetEmail, password: 'password123' }).catch(() => {});
-    } catch (e) {}
-    
-    setTimeout(() => {
-      addDebugLog('LoginPage', `Directing to portal as: ${targetName} (${role})`, 'success');
-      setLoading(false);
-      
-      if (role === 'admin') navigate(getRedirectUrl('/admin'));
-      else if (role === 'teacher') navigate(getRedirectUrl('/teacher'));
-      else if (role === 'student') navigate(getRedirectUrl('/student'));
-      else if (role === 'applicant') navigate(getRedirectUrl('/admission'));
-      else navigate(getRedirectUrl('/'));
-    }, 450);
-  };
-
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // If input looks like an exam number entered in email field
-    if (mode === 'login' && (email.includes('/') || email.startsWith('IMSC') || email.startsWith('EXAM'))) {
+    if (mode === 'login' && authType !== 'admin' && (email.includes('/') || email.startsWith('IMSC') || email.startsWith('EXAM'))) {
       setExamNumber(email);
       setFirstNamePassword(password);
       return handleApplicantExamLogin();
     }
 
     const emailLower = email.toLowerCase().trim();
-    const isAdmin = emailLower.includes('admin');
+    const isAdminTarget = authType === 'admin' || emailLower === 'admin@school.com' || emailLower.includes('admin');
 
-    // Admin login must strictly require password
-    if (isAdmin && (!password || password.trim().length < 4)) {
-      setError('Please enter your administrator password.');
-      return;
-    }
+    if (mode === 'register') {
+      if (isAdminTarget) {
+        setError('Administrator accounts cannot be registered publicly. Please sign in with username: admin@school.com and password: admin123.');
+        return;
+      }
 
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
-    setLoadingStatus(mode === 'login' ? 'Verifying credentials...' : 'Establishing secure portal account...');
+      setLoading(true);
+      setError(null);
+      setSuccess(null);
+      setLoadingStatus('Establishing secure portal account...');
 
-    try {
-      if (mode === 'login') {
-        const { data } = await supabase.auth.signInWithPassword({
-          email: emailLower,
-          password
-        }).catch(err => ({ data: { user: null }, error: err }));
-
-        let finalUser = data?.user;
-        let finalRole: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
-        let finalId = '';
-        
-        if (finalUser) {
-          finalId = finalUser.id;
-        } else {
-          finalId = isAdmin ? 'admin-user-id' : ('local-user-' + Math.floor(Math.random() * 100000));
-        }
-        
-        if (emailLower.includes('admin')) finalRole = 'admin';
-        else if (emailLower.includes('teacher')) finalRole = 'teacher';
-        else if (emailLower.includes('student')) finalRole = 'student';
-        
-        const cacheKey = `imsc_user_data_${finalId}`;
-        const userDisplayName = displayName || (isAdmin ? 'Administrator' : emailLower.split('@')[0]) || 'User';
-        const localProfile = {
-          role: finalRole,
-          displayName: userDisplayName,
-          email: emailLower,
-          createdAt: new Date().toISOString()
-        };
-        
-        safeStorage.setItem(cacheKey, JSON.stringify(localProfile));
-        safeStorage.setItem('imsc_active_user_id', finalId);
-        
-        await signInSession(finalId, emailLower, userDisplayName, finalRole);
-        
-        setLoadingStatus('Accessing secure portal...');
-        setTimeout(() => {
-          setLoading(false);
-          if (finalRole === 'admin') navigate(getRedirectUrl('/admin'));
-          else if (finalRole === 'teacher') navigate(getRedirectUrl('/teacher'));
-          else if (finalRole === 'student') navigate(getRedirectUrl('/student'));
-          else navigate(getRedirectUrl('/admission'));
-        }, 450);
-        
-      } else {
-        // Register mode
-        let finalRole: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
-        if (emailLower.includes('admin')) finalRole = 'admin';
-        else if (emailLower.includes('teacher')) finalRole = 'teacher';
+      try {
+        let finalRole: 'teacher' | 'student' | 'applicant' = 'applicant';
+        if (emailLower.includes('teacher')) finalRole = 'teacher';
         else if (emailLower.includes('student')) finalRole = 'student';
         
         const userDisplayName = displayName || emailLower.split('@')[0];
@@ -414,15 +265,110 @@ export default function LoginPage() {
         setLoadingStatus('Establishing credentials and entering portal...');
         setTimeout(() => {
           setLoading(false);
-          if (finalRole === 'admin') navigate(getRedirectUrl('/admin'));
-          else if (finalRole === 'teacher') navigate(getRedirectUrl('/teacher'));
+          if (finalRole === 'teacher') navigate(getRedirectUrl('/teacher'));
           else if (finalRole === 'student') navigate(getRedirectUrl('/student'));
           else navigate(getRedirectUrl('/admission'));
         }, 450);
+      } catch (err: any) {
+        console.error(err);
+        setError(err?.message || "Registration failed. Please try again.");
+        setLoading(false);
       }
+      return;
+    }
+
+    // STRICT ADMINISTRATOR AUTHENTICATION GATEWAY
+    if (isAdminTarget) {
+      if (emailLower !== 'admin@school.com') {
+        setError('Access Denied: Invalid administrator username. Username must strictly be "admin@school.com".');
+        return;
+      }
+
+      if (!password || password.trim() === '') {
+        setError('Access Denied: Password is required. Please enter the administrator password.');
+        return;
+      }
+
+      if (password !== 'admin123') {
+        setError('Access Denied: Incorrect administrator password. Password must strictly be "admin123".');
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      setSuccess('Administrator credentials verified! Entering Admin Control Dashboard...');
+      setLoadingStatus('Opening Administrator Control Dashboard...');
+
+      const adminId = 'admin-user-id';
+      const cacheKey = `imsc_user_data_${adminId}`;
+      const adminProfile = {
+        role: 'admin' as const,
+        displayName: 'Principal Administrator',
+        name: 'Principal Administrator',
+        fullName: 'Principal Administrator',
+        email: 'admin@school.com',
+        createdAt: new Date().toISOString()
+      };
+
+      safeStorage.setItem(cacheKey, JSON.stringify(adminProfile));
+      safeStorage.setItem('imsc_active_user_id', adminId);
+
+      try {
+        await supabase.auth.signInWithPassword({ email: 'admin@school.com', password: 'admin123' }).catch(() => {});
+      } catch (e) {}
+
+      await signInSession(adminId, 'admin@school.com', 'Principal Administrator', 'admin');
+
+      setTimeout(() => {
+        setLoading(false);
+        navigate(getRedirectUrl('/admin'));
+      }, 450);
+      return;
+    }
+
+    // Standard Staff / Student Login
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    setLoadingStatus('Verifying credentials...');
+
+    try {
+      const { data } = await supabase.auth.signInWithPassword({
+        email: emailLower,
+        password
+      }).catch(err => ({ data: { user: null }, error: err }));
+
+      let finalUser = data?.user;
+      let finalRole: 'teacher' | 'student' | 'applicant' = 'applicant';
+      let finalId = finalUser ? finalUser.id : ('local-user-' + Math.floor(Math.random() * 100000));
+      
+      if (emailLower.includes('teacher')) finalRole = 'teacher';
+      else if (emailLower.includes('student')) finalRole = 'student';
+      
+      const cacheKey = `imsc_user_data_${finalId}`;
+      const userDisplayName = displayName || emailLower.split('@')[0] || 'User';
+      const localProfile = {
+        role: finalRole,
+        displayName: userDisplayName,
+        email: emailLower,
+        createdAt: new Date().toISOString()
+      };
+      
+      safeStorage.setItem(cacheKey, JSON.stringify(localProfile));
+      safeStorage.setItem('imsc_active_user_id', finalId);
+      
+      await signInSession(finalId, emailLower, userDisplayName, finalRole);
+      
+      setLoadingStatus('Accessing secure portal...');
+      setTimeout(() => {
+        setLoading(false);
+        if (finalRole === 'teacher') navigate(getRedirectUrl('/teacher'));
+        else if (finalRole === 'student') navigate(getRedirectUrl('/student'));
+        else navigate(getRedirectUrl('/admission'));
+      }, 450);
     } catch (err: any) {
       console.error(err);
-      setError(err?.message || "Authentication failed. Please check credentials.");
+      setError(err?.message || "Login failed. Please check your credentials.");
       setLoading(false);
     }
   };
@@ -541,84 +487,55 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Quick Demo Access Selector */}
-          <div className="mb-6 p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="block text-[10px] font-bold uppercase text-emerald-900 tracking-wider">
-                Instant Demo Access
-              </span>
-              <span className="text-[9px] text-slate-400 font-medium">1-Click Preview</span>
-            </div>
-            
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('student')}
-                className="p-2.5 bg-white hover:bg-emerald-50 border border-slate-100 hover:border-emerald-200 rounded-xl transition-all flex flex-col items-start gap-1 shadow-sm group cursor-pointer text-left"
-              >
-                <div className="p-1 rounded-lg bg-sky-50 text-sky-600 group-hover:bg-sky-100">
-                  <GraduationCap size={14} />
-                </div>
-                <span className="block font-bold text-xs text-emerald-950">Student</span>
-                <span className="text-[9px] text-slate-400 leading-tight">Letter & Fees</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('admin')}
-                className="p-2.5 bg-white hover:bg-emerald-50 border border-slate-100 hover:border-emerald-200 rounded-xl transition-all flex flex-col items-start gap-1 shadow-sm group cursor-pointer text-left"
-              >
-                <div className="p-1 rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-100">
-                  <Shield size={14} />
-                </div>
-                <span className="block font-bold text-xs text-emerald-950">Admin</span>
-                <span className="text-[9px] text-slate-400 leading-tight">Excel Upload</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoLogin('teacher')}
-                className="p-2.5 bg-white hover:bg-emerald-50 border border-slate-100 hover:border-emerald-200 rounded-xl transition-all flex flex-col items-start gap-1 shadow-sm group cursor-pointer text-left"
-              >
-                <div className="p-1 rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100">
-                  <Users size={14} />
-                </div>
-                <span className="block font-bold text-xs text-emerald-950">Teacher</span>
-                <span className="text-[9px] text-slate-400 leading-tight">Class Grades</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Login Type Switcher Tabs (Student Exam Login vs Staff Email Login) */}
+          {/* Login Type Switcher Tabs (Student Exam Login vs Staff Email Login vs Admin Portal) */}
           {mode === 'login' && (
-            <div className="flex p-1 bg-slate-100 rounded-2xl mb-6">
+            <div className="flex p-1 bg-slate-100 rounded-2xl mb-6 gap-1">
               <button
                 type="button"
                 onClick={() => {
                   setAuthType('student-exam');
                   setError(null);
+                  setSuccess(null);
                 }}
-                className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                   authType === 'student-exam'
                     ? 'bg-emerald-900 text-white shadow-md'
                     : 'text-slate-600 hover:text-emerald-950'
                 }`}
               >
-                <GraduationCap size={15} /> Student (Exam No.)
+                <GraduationCap size={15} /> Student
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setAuthType('email');
                   setError(null);
+                  setSuccess(null);
                 }}
-                className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                   authType === 'email'
                     ? 'bg-emerald-900 text-white shadow-md'
                     : 'text-slate-600 hover:text-emerald-950'
                 }`}
               >
                 <Mail size={15} /> Staff / Email
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthType('admin');
+                  setEmail('admin@school.com');
+                  setPassword('');
+                  setError(null);
+                  setSuccess(null);
+                }}
+                className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  authType === 'admin'
+                    ? 'bg-amber-600 text-white shadow-md'
+                    : 'text-slate-600 hover:text-amber-950'
+                }`}
+              >
+                <Shield size={15} /> Admin Portal
               </button>
             </div>
           )}
@@ -638,8 +555,100 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Form Option 1: Student Login with Exam No & First Name */}
-          {mode === 'login' && authType === 'student-exam' ? (
+          {/* Form Option 1: Dedicated Admin Portal Form */}
+          {mode === 'login' && authType === 'admin' ? (
+            <form onSubmit={handleEmailAuth} className="space-y-4">
+              <div className="p-4 bg-amber-50/90 rounded-2xl border border-amber-300 text-amber-950 text-xs flex items-start gap-3 shadow-sm">
+                <Shield size={20} className="text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold text-xs uppercase tracking-wider text-amber-950 flex items-center gap-1.5">
+                    <span>Strict Administrator Gateway</span>
+                    <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-mono font-bold">PROTECTED</span>
+                  </h4>
+                  <p className="text-[11px] text-amber-900 mt-1 leading-relaxed">
+                    Admin access strictly requires verified credentials before accessing. Sign in with username: <strong className="font-mono text-amber-950 bg-amber-200/70 px-1 py-0.5 rounded font-bold">admin@school.com</strong> and password: <strong className="font-mono text-amber-950 bg-amber-200/70 px-1 py-0.5 rounded font-bold">admin123</strong>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between ml-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase">Administrator Username</label>
+                  <span className="text-[10px] text-slate-500 font-mono">admin@school.com</span>
+                </div>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none text-xs font-medium font-mono"
+                    placeholder="admin@school.com"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between ml-1">
+                  <label className="text-xs font-bold text-slate-700 uppercase">Administrator Password</label>
+                  <span className="text-[10px] text-slate-500 font-mono">admin123</span>
+                </div>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-12 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none text-xs font-mono font-medium"
+                    placeholder="Enter admin password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                    title={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] text-slate-400">Strict login verification</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('admin@school.com');
+                    setPassword('admin123');
+                    setError(null);
+                  }}
+                  className="text-[11px] text-amber-700 font-bold hover:text-amber-900 underline cursor-pointer"
+                >
+                  Fill admin credentials
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold rounded-xl flex items-center justify-center gap-2 text-sm shadow-lg shadow-amber-900/10 cursor-pointer mt-3 transition-all"
+              >
+                {loading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="animate-spin text-white" size={18} />
+                    <span>{loadingStatus || 'Verifying credentials...'}</span>
+                  </div>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Shield size={18} /> Sign In to Admin Portal
+                  </span>
+                )}
+              </button>
+            </form>
+          ) : mode === 'login' && authType === 'student-exam' ? (
+            /* Form Option 2: Student Login with Exam No & First Name */
             <form onSubmit={handleApplicantExamLogin} className="space-y-4">
               <div className="p-3.5 bg-amber-50/80 rounded-xl border border-amber-200 text-xs text-amber-900 leading-normal flex items-start gap-2">
                 <Sparkles size={16} className="text-amber-600 shrink-0 mt-0.5" />
@@ -678,11 +687,11 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Sample Credentials Chips for Quick User Convenience */}
+              {/* Candidate Credentials Hints (Only shown when actual records exist in database) */}
               {sampleApplicants.length > 0 && (
                 <div className="pt-2">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
-                    Sample Uploaded Applicants:
+                    Recent Uploaded Candidates:
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {sampleApplicants.map((samp, idx) => (
@@ -775,13 +784,20 @@ export default function LoginPage() {
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none text-xs transition-all"
+                    className="w-full pl-12 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none text-xs transition-all"
                     placeholder="••••••••"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
               </div>
 
@@ -808,17 +824,36 @@ export default function LoginPage() {
             </form>
           )}
 
-          <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-500 mb-3 font-medium">
-              {mode === 'login' ? 'Looking to submit a fresh application?' : 'Already have an account?'}
-            </p>
-            <button
-              onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-              className="px-6 py-2 border border-emerald-900 text-emerald-900 text-xs font-black rounded-xl hover:bg-emerald-50 transition-colors uppercase tracking-wider cursor-pointer"
-            >
-              {mode === 'login' ? 'Apply for Admission' : 'Sign In instead'}
-            </button>
-          </div>
+          {authType === 'admin' ? (
+            <div className="mt-6 pt-6 border-t border-slate-100 text-center">
+              <p className="text-xs text-slate-500 mb-2 font-medium">
+                Student checking admission result or fee status?
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthType('student-exam');
+                  setError(null);
+                  setSuccess(null);
+                }}
+                className="text-xs text-emerald-900 font-bold hover:underline cursor-pointer inline-flex items-center gap-1"
+              >
+                <GraduationCap size={14} /> Go to Student Exam Login
+              </button>
+            </div>
+          ) : (
+            <div className="mt-6 pt-6 border-t border-slate-100 text-center">
+              <p className="text-xs text-slate-500 mb-3 font-medium">
+                {mode === 'login' ? 'Looking to submit a fresh application?' : 'Already have an account?'}
+              </p>
+              <button
+                onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+                className="px-6 py-2 border border-emerald-900 text-emerald-900 text-xs font-black rounded-xl hover:bg-emerald-50 transition-colors uppercase tracking-wider cursor-pointer"
+              >
+                {mode === 'login' ? 'Apply for Admission' : 'Sign In instead'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

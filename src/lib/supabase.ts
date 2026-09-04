@@ -63,13 +63,22 @@ const initializeLocalStorageSchema = () => {
     currentProfiles = [];
   }
   
-  if (!Array.isArray(currentProfiles) || currentProfiles.length === 0) {
+  // Wipe any sample student or teacher profiles from local storage
+  if (Array.isArray(currentProfiles)) {
+    currentProfiles = currentProfiles.filter((p: any) => 
+      p && p.role === 'admin' && p.email !== 'student@school.com' && p.email !== 'teacher@school.com'
+    );
+  } else {
+    currentProfiles = [];
+  }
+
+  if (currentProfiles.length === 0) {
     const defaultProfiles = [
-      { id: 'mock-admin-id', email: 'admin@school.com', role: 'admin', displayName: 'School Admin' },
-      { id: 'mock-teacher-id', email: 'teacher@school.com', role: 'teacher', displayName: 'Mr. Okonjo' },
-      { id: 'mock-student-id', email: 'student@school.com', role: 'student', displayName: 'Abubakar Ibrahim' }
+      { id: 'admin-system-id', email: 'admin@school.com', role: 'admin', displayName: 'School Administrator' }
     ];
     safeStorage.setItem(profileKey, JSON.stringify(defaultProfiles));
+  } else {
+    safeStorage.setItem(profileKey, JSON.stringify(currentProfiles));
   }
 };
 
@@ -248,13 +257,18 @@ const generateMockSupabaseClient = () => {
       },
       signInWithPassword: async ({ email, password }: any) => {
         console.log('[Mock Supabase Auth] Signing in:', email);
+        const emailLower = (email || '').toLowerCase().trim();
+        if (emailLower === 'admin@school.com') {
+          if (password !== 'admin123') {
+            return { data: { user: null, session: null }, error: { message: 'Invalid administrator password. Password must be admin123.' } };
+          }
+        }
         const profiles = getMockData('profiles');
-        let profile = profiles.find(p => p.email === email);
+        let profile = profiles.find(p => p.email?.toLowerCase().trim() === emailLower);
 
         if (!profile) {
           let role = 'applicant';
-          const emailLower = email.toLowerCase();
-          if (emailLower.includes('admin')) role = 'admin';
+          if (emailLower === 'admin@school.com' && password === 'admin123') role = 'admin';
           else if (emailLower.includes('teacher')) role = 'teacher';
           else if (emailLower.includes('student')) role = 'student';
 

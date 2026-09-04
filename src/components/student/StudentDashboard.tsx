@@ -2851,8 +2851,23 @@ function StudentFees() {
               </div>
 
               <form onSubmit={handleVerifyPaystack} className="space-y-4 text-xs">
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-2">
+                  <p className="text-slate-700 text-xs leading-relaxed">
+                    Official College Payment Gateway: <strong>paystack.shop/pay/imammalikcollege</strong>
+                  </p>
+                  <a 
+                    href="https://paystack.shop/pay/imammalikcollege" 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="w-full py-2.5 px-3 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                  >
+                    <ExternalLink size={14} />
+                    <span>Open Paystack Payment Page</span>
+                  </a>
+                </div>
+
                 <p className="text-slate-600 text-xs leading-relaxed">
-                  If you just completed payment on our official Paystack payment page (<strong>https://paystack.shop/pay/imammalikcollege</strong>), enter your payment reference code below to register and update your personal financial ledger immediately.
+                  If you just completed payment on our official Paystack payment page, enter your payment reference code below to register and update your personal financial ledger immediately:
                 </p>
 
                 <div>

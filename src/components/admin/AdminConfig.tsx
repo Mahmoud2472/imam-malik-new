@@ -5,6 +5,7 @@ import { db } from '../../lib/firebase';
 import { formatCurrency } from '../../lib/utils';
 import ConfigModal from './modals/ConfigModal';
 import { supabase } from '../../lib/supabase';
+import { wipeAllSampleData } from '../../lib/wipeSampleData';
 
 export default function AdminConfig() {
   const [activeTab, setActiveTab] = useState<'Classes' | 'Subjects' | 'Teachers' | 'Fees' | 'System'>('Classes');
@@ -19,25 +20,15 @@ export default function AdminConfig() {
   const [systemMessage, setSystemMessage] = useState<string | null>(null);
 
   const handlePurgeDatabase = async () => {
-    if (!window.confirm("CRITICAL ACTION: Are you absolutely sure you want to WIPEOUT all trial student records, admission applications, payment receipts, academic results, and announcements from your Firestore database? This action is permanent and cannot be undone.")) {
+    if (!window.confirm("CRITICAL ACTION: Are you absolutely sure you want to WIPEOUT all trial student records, admission applications, payment receipts, entrance exam candidate lists, results, and announcements? This action will clean both the cloud database and all cached records.")) {
       return;
     }
     
     setPurging(true);
-    setSystemMessage("Wiping out old collections...");
+    setSystemMessage("Wiping out all sample records, applicants, payments, and mock caches...");
     try {
-      const collectionsToWipe = ['applications', 'payments', 'students', 'results', 'announcements'];
-      let totalDeleted = 0;
-      
-      for (const collName of collectionsToWipe) {
-        const snap = await getDocs(collection(db, collName));
-        for (const docObj of snap.docs) {
-          await deleteDoc(doc(db, collName, docObj.id));
-          totalDeleted++;
-        }
-      }
-      
-      setSystemMessage(`Success! Cleaned up ${totalDeleted} documents. Your database is now completely clean and ready.`);
+      const res = await wipeAllSampleData();
+      setSystemMessage(`Success! Cleaned up ${res.deletedCount} database documents and purged all sample applicant caches. Your system is now completely clean for live production.`);
     } catch (e: any) {
       console.error(e);
       setSystemMessage(`Error wiping database: ${e.message || String(e)}`);

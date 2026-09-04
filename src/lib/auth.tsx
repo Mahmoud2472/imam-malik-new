@@ -83,9 +83,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } else {
       const activeStudentName = safeStorage.getItem('imsc_active_student_name') || safeStorage.getItem('imsc_active_user_display_name');
-      const emailLower = email.toLowerCase();
+      const emailLower = email.toLowerCase().trim();
       let predictedRole: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
-      if (emailLower.includes('admin')) predictedRole = 'admin';
+      if (emailLower === 'admin@school.com') predictedRole = 'admin';
       else if (emailLower.includes('teacher')) predictedRole = 'teacher';
       else if (emailLower.includes('student') || userId.startsWith('app_') || userId.startsWith('IMSC')) predictedRole = 'student';
       
@@ -144,8 +144,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           'Student';
 
         const photo = profile?.photoUrl || profile?.photo_url || firestoreUser?.photoUrl || firestoreUser?.passportUrl || firestoreUser?.passportPhoto || firestoreUser?.photoURL;
+        const isStrictAdmin = email.toLowerCase().trim() === 'admin@school.com';
+        let resolvedRole: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
+        if (isStrictAdmin) {
+          resolvedRole = 'admin';
+        } else {
+          const candidateRole = firestoreUser?.role || profile?.role;
+          if (candidateRole === 'admin') {
+            // Non-admin email cannot possess admin role
+            resolvedRole = 'applicant';
+          } else if (candidateRole === 'teacher' || candidateRole === 'student') {
+            resolvedRole = candidateRole;
+          } else if (userId.startsWith('app_') || userId.startsWith('IMSC')) {
+            resolvedRole = 'student';
+          } else {
+            resolvedRole = 'applicant';
+          }
+        }
+
         const dataToSet: UserRoleData = {
-          role: (firestoreUser?.role || profile?.role || (email.toLowerCase().includes('admin') ? 'admin' : (userId.startsWith('app_') ? 'student' : 'applicant'))) as any,
+          role: resolvedRole,
           displayName: resolvedName,
           name: resolvedName,
           studentName: resolvedName,
@@ -466,9 +484,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUserData(parsed);
       } catch (e) {}
     } else {
-      const emailLower = email.toLowerCase();
+      const emailLower = email.toLowerCase().trim();
       let roleToUse: 'admin' | 'teacher' | 'student' | 'applicant' = explicitRole || 'applicant';
-      if (emailLower.includes('admin')) roleToUse = 'admin';
+      if (emailLower === 'admin@school.com') roleToUse = 'admin';
+      else if (roleToUse === 'admin' && emailLower !== 'admin@school.com') roleToUse = 'applicant';
       else if (emailLower.includes('teacher')) roleToUse = 'teacher';
       else if (emailLower.includes('student') || userId.startsWith('app_') || userId.startsWith('IMSC')) roleToUse = 'student';
       

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, CreditCard, FileText, UserPlus, Download, AlertCircle, Loader2, ShieldCheck, LogIn, Printer, Bell, Mail, Check, X } from 'lucide-react';
+import { CheckCircle2, CreditCard, FileText, UserPlus, Download, AlertCircle, Loader2, ShieldCheck, LogIn, Printer, Bell, Mail, Check, X, ExternalLink } from 'lucide-react';
 import { db } from '../../lib/firebase';
 import { collection, query, where, onSnapshot, getDocs, updateDoc, doc, orderBy, addDoc, limit, setDoc } from 'firebase/firestore';
 import { supabase } from '../../lib/supabase';
@@ -95,6 +95,7 @@ export default function AdmissionPage() {
   });
   const [admissionFee, setAdmissionFee] = useState({ amount: 1000, name: 'Admission & Prospectus Fee' });
   const [openedPaymentTab, setOpenedPaymentTab] = useState(false);
+  const [manualRefInput, setManualRefInput] = useState('');
   const [copiedCallbackUrl, setCopiedCallbackUrl] = useState(false);
   const [showPrintSlip, setShowPrintSlip] = useState(false);
   
@@ -902,30 +903,6 @@ export default function AdmissionPage() {
       }
     }
   }, [user, step]);
-
-  const handleAutoFillDemo = () => {
-    setValue('firstName', 'Balarabe');
-    setValue('lastName', 'Musa');
-    setValue('gender', 'Male');
-    setValue('dateOfBirth', '2012-08-15');
-    setValue('targetClassId', 'ss2');
-    setValue('phone', '08031234567');
-    setValue('hasSpecialNeeds', 'No');
-    setValue('guardianName', 'Mallam Ibrahim Musa');
-    setValue('guardianPhone', '07011223344');
-    setValue('address', 'No. 42 Gwarzo Road, Tudun Wada, Kano State');
-    setValue('primarySchool', 'Tudun Wada Primary School');
-    setValue('primarySchoolStart', '2018');
-    setValue('primarySchoolEnd', '2024');
-    setValue('islamiyyaSchool', 'Imam Malik Islamiyya School');
-    setValue('islamiyyaSchoolStart', '2019');
-    setValue('islamiyyaSchoolEnd', '2024');
-    
-    // Tiny valid light gray pixel to represent physical passport photo upload
-    const dummyImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkPwwAAd8AW7CjHQAAAABJRU5ErkJggg==";
-    setValue('passportPhoto', dummyImage);
-    setPassportPreview(dummyImage);
-  };
 
   const handlePassportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1816,56 +1793,75 @@ export default function AdmissionPage() {
                               ) : (
                                 <div className="mt-1 space-y-1.5 text-slate-700">
                                   <p>
-                                    The portal is currently using test mode credentials. If the checkout popup displays an invalid key notice:
+                                    To pay your admission fee, click the official Paystack button below to complete your payment on the verified college gateway, then enter your transaction reference code to unlock the application form.
                                   </p>
-                                  <ul className="list-disc pl-3.5 space-y-1">
-                                    <li>Use the <strong className="text-amber-950">Try direct Paystack link instead</strong> option below to register directly on the school's Paystack checkout store page.</li>
-                                    <li>Alternatively, click the dashed <strong className="text-amber-950">Bypass Payment</strong> button below to evaluate or submit the form instantly in demo mode.</li>
-                                  </ul>
                                 </div>
                               )}
                             </div>
                           )}
 
-                          {hasInlineProvider ? (
-                            <div className="space-y-2">
-                              <button 
-                                type="button"
-                                onClick={handleInitialPayment}
-                                disabled={isSubmitting}
-                                className="w-full btn-primary py-4 text-lg flex items-center justify-center gap-2 cursor-pointer font-bold shadow-md h-12"
-                              >
-                                {isSubmitting ? <Loader2 className="animate-spin" /> : <><CheckCircle2 size={20} /> {openedPaymentTab ? "Relaunch Paystack Payment" : "Securely Pay with Paystack"}</>}
-                              </button>
-                              <p className="text-center text-[11px] text-slate-500">
-                                Having issues with the popup?{" "}
-                                <a 
-                                  href="https://paystack.shop/pay/imammalikcollege"
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  onClick={() => setOpenedPaymentTab(true)}
-                                  className="text-emerald-700 font-bold underline hover:text-emerald-800"
-                                >
-                                  Try direct Paystack link instead
-                                </a>
+                          <div className="space-y-3">
+                            <a 
+                              href="https://paystack.shop/pay/imammalikcollege"
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              onClick={() => setOpenedPaymentTab(true)}
+                              className="w-full bg-emerald-800 hover:bg-emerald-900 text-white py-3.5 px-4 text-sm font-black uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 shadow-md shadow-emerald-950/20 cursor-pointer transition-all hover:scale-[1.01] active:scale-95 text-center select-none"
+                            >
+                              <ExternalLink size={18} />
+                              <span>{openedPaymentTab ? "Relaunch Paystack Gateway" : "Pay ₦" + admissionFee.amount.toLocaleString() + " on Paystack"}</span>
+                            </a>
+
+                            <div className="p-2.5 bg-slate-100 rounded-xl border border-slate-200 text-center">
+                              <p className="text-[11px] text-slate-600 font-mono font-bold">
+                                Official Gateway: <span className="text-emerald-800 font-bold">paystack.shop/pay/imammalikcollege</span>
                               </p>
                             </div>
-                          ) : (
-                            (() => {
-                              const payLink = "https://paystack.shop/pay/imammalikcollege";
-                              return (
-                                <a 
-                                  href={payLink}
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  onClick={() => setOpenedPaymentTab(true)}
-                                  className="w-full btn-primary py-4 text-lg flex items-center justify-center gap-2 cursor-pointer font-bold shadow-md h-12 text-center select-none block hover:scale-[1.01] active:scale-95 transition-transform"
+
+                            {openedPaymentTab && (
+                              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px] flex items-center gap-2 text-left">
+                                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                                <span>Paystack window opened! Once payment is complete, enter your Reference code below to unlock the form.</span>
+                              </div>
+                            )}
+
+                            {/* Reference Code Manual Entry to Unlock Form */}
+                            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-left space-y-2.5 mt-2">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                                  Paid on Paystack? Enter Reference Code
+                                </label>
+                                <span className="text-[10px] text-emerald-700 font-bold">Auto-Verification</span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 leading-normal">
+                                Enter the transaction reference from your Paystack confirmation screen or email receipt:
+                              </p>
+                              <div className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="e.g. PAY-12345678 or T123456789"
+                                  value={manualRefInput}
+                                  onChange={(e) => setManualRefInput(e.target.value)}
+                                  className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl font-mono text-xs uppercase font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!manualRefInput.trim()) {
+                                      alert("Please enter your Paystack transaction reference code.");
+                                      return;
+                                    }
+                                    verifyManualPayment(manualRefInput.trim(), false);
+                                  }}
+                                  disabled={isSubmitting}
+                                  className="px-4 py-2 bg-emerald-950 hover:bg-emerald-900 text-white font-black text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-1.5 shadow-xs cursor-pointer shrink-0 disabled:opacity-50"
                                 >
-                                  <CheckCircle2 size={20} /> {openedPaymentTab ? "Relaunch Paystack Payment" : "Securely Pay with Paystack"}
-                                </a>
-                              );
-                            })()
-                          )}
+                                  {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                                  <span>Verify & Unlock</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       );
                     })()}
@@ -1991,24 +1987,19 @@ export default function AdmissionPage() {
                         </div>
                       )}
 
-                      {/* Alert panel and Quick fill action */}
-                      <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+                      {/* Alert panel - Reactive Auto-Save Status */}
+                      <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse" />
+                        </div>
                         <div className="text-left">
-                          <h4 className="text-sm font-extrabold text-emerald-950 mb-1 flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                          <h4 className="text-sm font-extrabold text-emerald-950 mb-0.5">
                             Reactive Auto-Save Activated
                           </h4>
-                          <p className="text-xs text-slate-500 leading-relaxed max-w-sm">
-                            All typed fields are instantly saved to draft state in the background. If you refresh or return later, this form will auto-load filled.
+                          <p className="text-xs text-slate-500 leading-relaxed">
+                            Your form entries are automatically saved to your device as you type, ensuring you never lose your progress if interrupted.
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={handleAutoFillDemo}
-                          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-emerald-950 hover:text-white font-extrabold tracking-wide rounded-xl text-xs uppercase transition-all shadow-md cursor-pointer shrink-0"
-                        >
-                          ✨ Auto-Fill Demo Profile
-                        </button>
                       </div>
 
                       <form 

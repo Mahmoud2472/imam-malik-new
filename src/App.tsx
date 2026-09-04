@@ -13,6 +13,10 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import StudentDashboard from './components/student/StudentDashboard';
 import TeacherDashboard from './components/teacher/TeacherDashboard';
 import LoadingScreen from './components/shared/LoadingScreen';
+import { autoWipeSampleDataOnStartup } from './lib/wipeSampleData';
+
+// Ensure sample and demo data is wiped clean for production deployment
+autoWipeSampleDataOnStartup();
 
 function QueryRedirector() {
   const navigate = useNavigate();

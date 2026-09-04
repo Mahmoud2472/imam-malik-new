@@ -4,6 +4,7 @@ import { db } from '../../lib/firebase';
 import { Bell, Send, History, Trash2, Loader2, Mail, Eye, X, Sparkles, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../lib/utils';
+import { safeStorage } from '../../lib/safeStorage';
 
 export default function AdminAnnouncements() {
   const [activeTab, setActiveTab] = useState<'announcements' | 'outbox'>('announcements');
@@ -101,8 +102,29 @@ export default function AdminAnnouncements() {
   };
 
   const handleClearLogs = async () => {
-    if (window.confirm("Permanently wipe clean all outbound delivery logs for testing?")) {
-      alert("Demo Wipe Complete. In a real system, transaction logs are archived safely.");
+    if (window.confirm("Permanently wipe clean all outbound delivery and notification logs?")) {
+      try {
+        const emailsSnap = await getDocs(collection(db, "email_logs"));
+        for (const d of emailsSnap.docs) {
+          try {
+            await deleteDoc(doc(db, "email_logs", d.id));
+          } catch (e) {}
+        }
+        const notifsSnap = await getDocs(collection(db, "notifications"));
+        for (const d of notifsSnap.docs) {
+          try {
+            await deleteDoc(doc(db, "notifications", d.id));
+          } catch (e) {}
+        }
+        setEmailLogs([]);
+        setDbNotifications([]);
+        safeStorage.removeItem('imsc_supabase_mock_email_logs');
+        safeStorage.removeItem('imsc_supabase_mock_notifications');
+        alert("Outbound email logs and system notifications successfully wiped clean.");
+      } catch (err: any) {
+        console.error("Error clearing logs:", err);
+        alert("Error wiping logs: " + (err.message || String(err)));
+      }
     }
   };
 
