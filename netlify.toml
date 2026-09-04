@@ -1,8 +1,24 @@
 [build]
-  command = "npm run build"
+  command = "node scripts/verify-env.js && vite build"
   publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--include=dev"
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Prevent browsers from aggressively caching index.html and sw.js across deployments
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+

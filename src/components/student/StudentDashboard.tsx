@@ -26,6 +26,7 @@ import PaystackCheckoutModal, { FeePaymentItem } from './PaystackCheckoutModal';
 import { getAdmissionVerificationPayload } from '../../lib/admissionPdfService';
 import { CelebrationReceiptModal } from './CelebrationReceiptModal';
 import { StudentCustomFeeBuilder } from './StudentCustomFeeBuilder';
+import { extractCleanApplicantNames } from '../../lib/applicantService';
 
 export default function StudentDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -40,7 +41,7 @@ export default function StudentDashboard() {
         try {
           // Check local cache first
           const examNo = userData?.studentId || userData?.examNumber || user.id.replace('app_', '');
-          const localApp = safeStorage.getItem(`imsc_app_${examNo}`) || safeStorage.getItem(`imsc_app_${user.id}`);
+          const localApp = safeStorage.getItem(`imsc_app_${examNo}`) || safeStorage.getItem(`imsc_app_${user.id}`) || safeStorage.getItem('imsc_active_student_app');
           let parsedLocalApp = null;
           if (localApp) {
             try { parsedLocalApp = JSON.parse(localApp); } catch(e) {}
@@ -63,7 +64,7 @@ export default function StudentDashboard() {
               : Promise.resolve({ data: null })
           ]);
 
-          let foundApp = null;
+          let foundApp: any = null;
           if (firestoreSnap && !firestoreSnap.empty) {
             foundApp = { id: firestoreSnap.docs[0].id, ...firestoreSnap.docs[0].data() };
           } else if (supabaseRes && supabaseRes.data && supabaseRes.data.length > 0) {
@@ -72,8 +73,49 @@ export default function StudentDashboard() {
             foundApp = parsedLocalApp;
           }
 
+          // If not found in applications table, check applicants / successful_applicants
+          if (!foundApp && examNo) {
+            const cleanExam = examNo.replace(/_/g, '/');
+            try {
+              if (isSupabaseConfigured) {
+                const { data: matchedApp } = await supabase
+                  .from('applicants')
+                  .select('*')
+                  .or(`examNumber.ilike.%${cleanExam}%,exam_number.ilike.%${cleanExam}%`)
+                  .limit(1);
+                if (matchedApp && matchedApp.length > 0) {
+                  foundApp = matchedApp[0];
+                }
+              }
+            } catch (e) {}
+
+            if (!foundApp) {
+              try {
+                const directAppDoc = await getDoc(doc(db, 'applicants', user.uid)).catch(() => null);
+                if (directAppDoc && directAppDoc.exists()) {
+                  foundApp = { id: directAppDoc.id, ...directAppDoc.data() };
+                }
+              } catch (e) {}
+            }
+          }
+
           if (foundApp) {
-            setApplication(foundApp);
+            const cleanNames = extractCleanApplicantNames(foundApp);
+            const activeStudentName = safeStorage.getItem('imsc_active_student_name') || safeStorage.getItem('imsc_active_user_display_name');
+            const resolvedFullName = (cleanNames.name && cleanNames.name !== 'Unknown Candidate') 
+              ? cleanNames.name 
+              : (foundApp.name || foundApp.fullName || foundApp.studentName || foundApp.displayName || activeStudentName);
+
+            const unifiedApp = {
+              ...foundApp,
+              name: resolvedFullName,
+              fullName: resolvedFullName,
+              studentName: resolvedFullName,
+              displayName: resolvedFullName,
+              firstName: cleanNames.firstName || foundApp.firstName,
+              lastName: cleanNames.lastName || foundApp.lastName
+            };
+            setApplication(unifiedApp);
           } else if (parsedLocalApp) {
             setApplication(parsedLocalApp);
           }
@@ -209,7 +251,7 @@ export default function StudentDashboard() {
              >
                {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
              </button>
-             <h3 className="font-bold text-slate-800 text-sm sm:text-base">Assalamu Alaikum, {userData?.displayName?.split(' ')[0] || 'Student'}</h3>
+             <h3 className="font-bold text-slate-800 text-sm sm:text-base">Assalamu Alaikum, {(userData?.displayName || application?.name || 'Student').split(' ')[0]}</h3>
           </div>
           
           <div className="flex items-center gap-2 sm:gap-4">
@@ -233,7 +275,7 @@ export default function StudentDashboard() {
             {/* Profile Avatar / Link */}
             <Link to="/student/profile" className="flex items-center gap-2 sm:gap-3 group p-1 rounded-xl hover:bg-slate-50 transition-colors">
               <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold text-slate-700 leading-tight group-hover:text-amber-600 transition-colors">{userData?.displayName}</p>
+                <p className="text-xs font-bold text-slate-700 leading-tight group-hover:text-amber-600 transition-colors">{userData?.displayName || application?.name || 'Student'}</p>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{userData?.role}</p>
               </div>
               <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-900 border border-slate-200 flex items-center justify-center text-sm font-bold overflow-hidden shrink-0 shadow-sm transition-all group-hover:border-amber-500">
@@ -366,10 +408,18 @@ function StudentOverview({ application }: { application: any }) {
   ];
 
   const candidateName =
-    application?.name ||
-    application?.firstName
-      ? `${application.firstName || ''} ${application.lastName || ''}`.trim()
-      : userData?.displayName || 'Approved Applicant';
+    (application?.name && application.name.trim().length > 0 ? application.name.trim() : '') ||
+    (application?.fullName && application.fullName.trim().length > 0 ? application.fullName.trim() : '') ||
+    (application?.studentName && application.studentName.trim().length > 0 ? application.studentName.trim() : '') ||
+    (application?.firstName && application?.lastName ? `${application.firstName} ${application.lastName}`.trim() : '') ||
+    (userData?.displayName && userData.displayName !== 'User' && userData.displayName !== 'Student' && userData.displayName !== 'Approved Applicant' ? userData.displayName : '') ||
+    (userData?.name && userData.name !== 'User' ? userData.name : '') ||
+    (userData?.fullName ? userData.fullName : '') ||
+    safeStorage.getItem('imsc_active_student_name') ||
+    safeStorage.getItem('imsc_active_user_display_name') ||
+    (application?.firstName ? application.firstName : '') ||
+    userData?.displayName ||
+    'Approved Applicant';
 
   const candidateExamNo =
     application?.examNumber ||
@@ -1371,7 +1421,14 @@ function StudentResults() {
 
 function StudentFees() {
   const { userData, user } = useAuth();
-  const studentName = userData?.displayName || user?.displayName || 'Student';
+  const studentName = 
+    (userData?.displayName && userData.displayName !== 'User' && userData.displayName !== 'Student' ? userData.displayName : '') ||
+    (userData?.name && userData.name !== 'User' ? userData.name : '') ||
+    (userData?.fullName ? userData.fullName : '') ||
+    safeStorage.getItem('imsc_active_student_name') || 
+    safeStorage.getItem('imsc_active_user_display_name') || 
+    user?.displayName || 
+    'Student';
   const examNo = userData?.examNumber || userData?.studentId || userData?.id || 'IMSC/2026/001';
   const assignedClass = userData?.targetClass || (userData?.gender === 'female' ? 'JSS 1B' : 'JSS 1A');
   const gender = userData?.gender || (studentName.toLowerCase().includes('fatima') || studentName.toLowerCase().includes('maryam') || studentName.toLowerCase().includes('aisha') ? 'female' : 'male');
@@ -2900,8 +2957,20 @@ function StudentProfile({ application, onLogout }: { application?: any; onLogout
   const [previewUrl, setPreviewUrl] = useState<string | null>(initialPhoto);
 
   // Form State
+  const resolvedDisplayName =
+    (application?.name && application.name.trim().length > 0 ? application.name : '') ||
+    (application?.fullName && application.fullName.trim().length > 0 ? application.fullName : '') ||
+    (application?.studentName && application.studentName.trim().length > 0 ? application.studentName : '') ||
+    (userData?.displayName && userData.displayName !== 'User' && userData.displayName !== 'Student' ? userData.displayName : '') ||
+    (userData?.name && userData.name !== 'User' ? userData.name : '') ||
+    (userData?.fullName ? userData.fullName : '') ||
+    safeStorage.getItem('imsc_active_student_name') ||
+    safeStorage.getItem('imsc_active_user_display_name') ||
+    userData?.displayName ||
+    '';
+
   const [formData, setFormData] = useState({
-    displayName: userData?.displayName || userData?.name || userData?.studentName || '',
+    displayName: resolvedDisplayName,
     phone: userData?.phone || userData?.phoneNumber || '',
     gender: userData?.gender || 'male',
     dob: userData?.dob || userData?.dateOfBirth || '',

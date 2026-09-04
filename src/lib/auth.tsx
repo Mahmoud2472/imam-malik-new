@@ -4,10 +4,15 @@ import { safeStorage } from './safeStorage';
 import { addDebugLog } from './debug';
 import { db } from './firebase';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { extractCleanApplicantNames } from './applicantService';
 
 export interface UserRoleData {
+  id?: string;
   role: 'admin' | 'teacher' | 'student' | 'applicant';
   displayName: string;
+  name?: string;
+  studentName?: string;
+  fullName?: string;
   email: string;
   studentId?: string;
   teacherId?: string;
@@ -54,7 +59,7 @@ interface AuthContextType {
   refreshUserData: () => Promise<void>;
   updateUserProfile: (newProfileData: Partial<UserRoleData>) => Promise<void>;
   signOut: () => Promise<void>;
-  signInSession: (userId: string, email: string, displayName: string) => Promise<void>;
+  signInSession: (userId: string, email: string, displayName: string, explicitRole?: 'admin' | 'teacher' | 'student' | 'applicant') => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -77,15 +82,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.warn("Could not parse cached user data", e);
       }
     } else {
+      const activeStudentName = safeStorage.getItem('imsc_active_student_name') || safeStorage.getItem('imsc_active_user_display_name');
       const emailLower = email.toLowerCase();
       let predictedRole: 'admin' | 'teacher' | 'student' | 'applicant' = 'applicant';
       if (emailLower.includes('admin')) predictedRole = 'admin';
       else if (emailLower.includes('teacher')) predictedRole = 'teacher';
-      else if (emailLower.includes('student')) predictedRole = 'student';
+      else if (emailLower.includes('student') || userId.startsWith('app_') || userId.startsWith('IMSC')) predictedRole = 'student';
       
+      const fallbackName = activeStudentName || email.split('@')[0] || 'User';
       const defaultProfile: UserRoleData = {
         role: predictedRole,
-        displayName: email.split('@')[0] || 'User',
+        displayName: fallbackName,
+        name: fallbackName,
+        studentName: fallbackName,
+        fullName: fallbackName,
         email
       };
       setUserData(defaultProfile);
@@ -118,12 +128,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const firestoreUser = firestoreSnap && (firestoreSnap as any).exists && (firestoreSnap as any).exists() ? (firestoreSnap as any).data() : null;
 
       if (profile || firestoreUser) {
+        const candidateRaw = { ...(firestoreUser || {}), ...(profile || {}) };
+        const extracted = extractCleanApplicantNames(candidateRaw);
+        const activeStudentName = safeStorage.getItem('imsc_active_student_name') || safeStorage.getItem('imsc_active_user_display_name');
+        const resolvedName = 
+          (extracted.name && extracted.name !== 'Unknown Candidate' && extracted.name !== 'Student' ? extracted.name : '') || 
+          candidateRaw.displayName || 
+          candidateRaw.display_name || 
+          candidateRaw.fullName || 
+          candidateRaw.full_name || 
+          candidateRaw.studentName || 
+          candidateRaw.name ||
+          activeStudentName || 
+          email.split('@')[0] || 
+          'Student';
+
         const photo = profile?.photoUrl || profile?.photo_url || firestoreUser?.photoUrl || firestoreUser?.passportUrl || firestoreUser?.passportPhoto || firestoreUser?.photoURL;
         const dataToSet: UserRoleData = {
-          role: (firestoreUser?.role || profile?.role || (email.toLowerCase().includes('admin') ? 'admin' : 'applicant')) as any,
-          displayName: profile?.displayName || profile?.display_name || firestoreUser?.displayName || email.split('@')[0],
+          role: (firestoreUser?.role || profile?.role || (email.toLowerCase().includes('admin') ? 'admin' : (userId.startsWith('app_') ? 'student' : 'applicant'))) as any,
+          displayName: resolvedName,
+          name: resolvedName,
+          studentName: resolvedName,
+          fullName: resolvedName,
           email: profile?.email || firestoreUser?.email || email,
-          studentId: firestoreUser?.studentId || profile?.studentId || profile?.student_id,
+          studentId: firestoreUser?.studentId || profile?.studentId || profile?.student_id || firestoreUser?.examNumber || profile?.examNumber,
           teacherId: firestoreUser?.teacherId || profile?.teacherId || profile?.teacher_id,
           photoUrl: photo,
           passportUrl: photo,
@@ -140,15 +168,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           guardianPhone: profile?.guardianPhone || profile?.guardian_phone || firestoreUser?.guardianPhone,
           guardianEmail: profile?.guardianEmail || profile?.guardian_email || firestoreUser?.guardianEmail,
           guardianRelationship: profile?.guardianRelationship || profile?.guardian_relationship || firestoreUser?.guardianRelationship,
-          hasPaidApplication: firestoreUser?.hasPaidApplication !== undefined ? firestoreUser.hasPaidApplication : (profile?.hasPaidApplication || profile?.has_paid_application),
-          admissionStatus: (firestoreUser?.admissionStatus || profile?.admissionStatus || profile?.admission_status || 'pending') as any,
-          targetClass: firestoreUser?.targetClass || firestoreUser?.class || profile?.targetClass || profile?.target_class,
-          class: firestoreUser?.targetClass || firestoreUser?.class || profile?.targetClass || profile?.target_class,
+          hasPaidApplication: firestoreUser?.hasPaidApplication !== undefined ? firestoreUser.hasPaidApplication : (profile?.hasPaidApplication || profile?.has_paid_application || true),
+          admissionStatus: (firestoreUser?.admissionStatus || profile?.admissionStatus || profile?.admission_status || 'approved') as any,
+          targetClass: firestoreUser?.targetClass || firestoreUser?.class || profile?.targetClass || profile?.target_class || 'JSS 1',
+          class: firestoreUser?.targetClass || firestoreUser?.class || profile?.targetClass || profile?.target_class || 'JSS 1',
           examNumber: firestoreUser?.examNumber || profile?.examNumber || profile?.exam_number
         };
         addDebugLog('Auth Service', `Database profile resolved. Verified Role: "${dataToSet.role}" | Status: "${dataToSet.admissionStatus}" | Name: "${dataToSet.displayName}"`, 'success');
         setUserData(dataToSet);
         safeStorage.setItem(cacheKey, JSON.stringify(dataToSet));
+        safeStorage.setItem('imsc_active_student_name', resolvedName);
+        safeStorage.setItem('imsc_active_user_display_name', resolvedName);
+      } else {
+        const activeStudentName = safeStorage.getItem('imsc_active_student_name') || safeStorage.getItem('imsc_active_user_display_name');
+        if (activeStudentName) {
+          setUserData(prev => {
+            const updated = {
+              ...(prev || {}),
+              displayName: activeStudentName,
+              name: activeStudentName,
+              studentName: activeStudentName,
+              fullName: activeStudentName
+            } as UserRoleData;
+            safeStorage.setItem(cacheKey, JSON.stringify(updated));
+            return updated;
+          });
+        }
       }
     } catch (err) {
       addDebugLog('Auth Service', `Database profile check finished. Error: ${err instanceof Error ? err.message : String(err)}`, 'warn');
@@ -394,6 +439,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInSession = async (userId: string, email: string, displayName: string, explicitRole?: 'admin' | 'teacher' | 'student' | 'applicant') => {
     addDebugLog('Auth Service', `Explicitly logging in session for ${email} (${userId})`, 'success');
     safeStorage.setItem('imsc_active_user_id', userId);
+    if (displayName) {
+      safeStorage.setItem('imsc_active_student_name', displayName);
+      safeStorage.setItem('imsc_active_user_display_name', displayName);
+    }
     const compatUser: CompactSupabaseUser = {
       id: userId,
       uid: userId,
@@ -407,18 +456,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const cached = safeStorage.getItem(cacheKey);
     if (cached) {
       try {
-        setUserData(JSON.parse(cached));
+        const parsed = JSON.parse(cached);
+        if (displayName && (!parsed.displayName || parsed.displayName === 'User')) {
+          parsed.displayName = displayName;
+          parsed.name = displayName;
+          parsed.fullName = displayName;
+          parsed.studentName = displayName;
+        }
+        setUserData(parsed);
       } catch (e) {}
     } else {
       const emailLower = email.toLowerCase();
       let roleToUse: 'admin' | 'teacher' | 'student' | 'applicant' = explicitRole || 'applicant';
       if (emailLower.includes('admin')) roleToUse = 'admin';
       else if (emailLower.includes('teacher')) roleToUse = 'teacher';
-      else if (emailLower.includes('student')) roleToUse = 'student';
+      else if (emailLower.includes('student') || userId.startsWith('app_') || userId.startsWith('IMSC')) roleToUse = 'student';
       
       const immediateProfile: UserRoleData = {
         role: roleToUse,
         displayName: displayName || email.split('@')[0] || 'User',
+        name: displayName || email.split('@')[0] || 'User',
+        studentName: displayName || email.split('@')[0] || 'User',
+        fullName: displayName || email.split('@')[0] || 'User',
         email
       };
       setUserData(immediateProfile);

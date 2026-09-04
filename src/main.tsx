@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
+import ErrorBoundary from './components/shared/ErrorBoundary.tsx';
 import './index.css';
 
 // Safely shim localStorage for environments where third-party iframe cookie/storage restrictions are active
@@ -52,19 +53,33 @@ try {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );
 
-// Register Service Worker for offline capability
+// Register Service Worker for offline capability with proactive update checking
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
       .then(registration => {
-        console.log('ServiceWorker registered with scope:', registration.scope);
+        // Trigger background check for service worker updates
+        registration.update().catch(() => null);
+
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                console.log('[Service Worker] New update available.');
+              }
+            });
+          }
+        });
       })
       .catch(err => {
-        console.error('ServiceWorker registration failed:', err);
+        console.warn('ServiceWorker registration skipped:', err);
       });
   });
 }

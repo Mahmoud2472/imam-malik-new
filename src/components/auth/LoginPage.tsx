@@ -146,6 +146,9 @@ export default function LoginPage() {
       const studentProfile = {
         role: 'student',
         displayName: candidate.name,
+        name: candidate.name,
+        studentName: candidate.name,
+        fullName: candidate.name,
         email: `${candidate.examNumber.toLowerCase().replace(/[^a-z0-9]/g, '')}@student.imsc.edu.ng`,
         studentId: candidate.examNumber,
         examNumber: candidate.examNumber,
@@ -171,6 +174,8 @@ export default function LoginPage() {
         firstName: candidate.firstName,
         lastName: candidate.lastName,
         name: candidate.name,
+        fullName: candidate.name,
+        studentName: candidate.name,
         targetClassId: 'jss1',
         targetClass: candidate.targetClass || 'JSS 1',
         schoolName: candidate.schoolName,
@@ -185,11 +190,16 @@ export default function LoginPage() {
       };
 
       safeStorage.setItem(cacheKey, JSON.stringify(studentProfile));
+      safeStorage.setItem(`imsc_user_data_${candidate.examNumber}`, JSON.stringify(studentProfile));
       safeStorage.setItem('imsc_active_user_id', userId);
+      safeStorage.setItem('imsc_active_student_name', candidate.name);
+      safeStorage.setItem('imsc_active_user_display_name', candidate.name);
       safeStorage.setItem(`imsc_app_${candidate.examNumber}`, JSON.stringify(appRecord));
+      safeStorage.setItem(`imsc_app_${userId}`, JSON.stringify(appRecord));
+      safeStorage.setItem('imsc_active_student_app', JSON.stringify(appRecord));
 
       // Update React context auth
-      await signInSession(userId, studentProfile.email, studentProfile.displayName);
+      await signInSession(userId, studentProfile.email, studentProfile.displayName, 'student');
 
       setSuccess(`Welcome, ${candidate.name}! Directing to your student dashboard...`);
       setLoadingStatus('Accessing student admission & payment portal...');
