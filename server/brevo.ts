@@ -20,6 +20,8 @@ export interface SendEmailOptions {
   notificationType?: string;
   tags?: string[];
   metadata?: Record<string, any>;
+  forceSimulation?: boolean;
+  allowSimulationFallback?: boolean;
 }
 
 export interface EmailSendResult {
@@ -27,6 +29,7 @@ export interface EmailSendResult {
   messageId?: string;
   status: 'sent' | 'failed' | 'simulated' | 'queued';
   provider: 'brevo' | 'simulation';
+  warning?: string;
   error?: {
     code: 'EMAIL_CONFIGURATION_ERROR' | 'EMAIL_VALIDATION_ERROR' | 'EMAIL_PROVIDER_ERROR' | 'EMAIL_RATE_LIMITED' | 'EMAIL_SEND_FAILED';
     message: string;
@@ -88,21 +91,70 @@ export function checkRateLimit(identifier: string = 'global'): boolean {
   return true;
 }
 
+export interface BrevoConfigInfo {
+  isConfigured: boolean;
+  apiKey: string;
+  senderEmail: string;
+  senderName: string;
+  adminEmail: string;
+  status: 'active' | 'simulation' | 'invalid_key_format';
+  keyWarning?: string;
+  maskedKey?: string;
+}
+
 /**
- * Get Brevo configuration values from environment
+ * Get Brevo configuration values from environment with pattern inspection
  */
-export function getBrevoConfig() {
-  const apiKey = (process.env.BREVO_API_KEY || '').trim();
-  const senderEmail = (process.env.BREVO_SENDER_EMAIL || 'noreply@imsc.edu.ng').trim();
-  const senderName = (process.env.BREVO_SENDER_NAME || 'Imam Malik Science & Tahfiz College').trim();
+export function getBrevoConfig(): BrevoConfigInfo {
+  let apiKey = (process.env.BREVO_API_KEY || '').trim();
+  apiKey = apiKey.replace(/^["']|["']$/g, '').trim();
+
+  // Use configured sender email or school admin email
+  const senderEmail = (process.env.BREVO_SENDER_EMAIL || 'maitechitservices6@gmail.com').trim();
+  let senderName = (process.env.BREVO_SENDER_NAME || 'Imam Malik Science & Tahfiz College').trim();
+  if (senderName.includes('Thfiz')) {
+    senderName = senderName.replace('Thfiz', 'Tahfiz');
+  }
   const adminEmail = (process.env.ADMIN_EMAIL || 'maitechitservices6@gmail.com').trim();
 
+  // Inspect key format
+  const isIPv4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(apiKey);
+  const isPlaceholder = !apiKey || apiKey.toLowerCase().includes('placeholder') || apiKey.toLowerCase().includes('your_');
+  const startsWithBrevoPrefix = apiKey.startsWith('xkeysib-');
+  const hasValidLength = apiKey.length >= 25;
+
+  let isConfigured = false;
+  let status: 'active' | 'simulation' | 'invalid_key_format' = 'simulation';
+  let keyWarning: string | undefined;
+
+  if (isIPv4) {
+    status = 'invalid_key_format';
+    keyWarning = `Configured BREVO_API_KEY is an IP address ("${apiKey}") rather than a Brevo v3 API key. Brevo API keys start with "xkeysib-". Safe simulation mode has been automatically activated.`;
+  } else if (isPlaceholder) {
+    status = 'simulation';
+    keyWarning = 'BREVO_API_KEY is not configured yet. Running in safe simulation mode.';
+  } else if (!startsWithBrevoPrefix && !hasValidLength) {
+    status = 'invalid_key_format';
+    keyWarning = `BREVO_API_KEY format unrecognized (Brevo v3 keys start with "xkeysib-"). Safe simulation mode active.`;
+  } else {
+    // Valid key signature
+    isConfigured = true;
+    status = 'active';
+  }
+
+  const maskedKey = apiKey
+    ? (apiKey.length > 8 ? `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}` : '****')
+    : undefined;
+
   return {
-    isConfigured: !!apiKey && apiKey.length > 10 && !apiKey.includes('placeholder'),
+    isConfigured,
     apiKey,
     senderEmail,
     senderName,
-    adminEmail
+    adminEmail,
+    status,
+    keyWarning,
+    maskedKey
   };
 }
 
@@ -243,15 +295,17 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
     email: config.senderEmail
   };
 
-  // 5. If Brevo is NOT configured, run in safe simulation mode
-  if (!config.isConfigured) {
-    console.info(`[Email Service - Simulated] To: ${primaryRecipient.email} | Subject: "${options.subject}" | Type: ${options.notificationType || 'general'}`);
+  // 5. If Simulation is forced OR Brevo is NOT configured, run in safe simulation mode
+  if (options.forceSimulation || !config.isConfigured) {
+    const reason = options.forceSimulation ? 'Forced Simulation' : (config.keyWarning || 'Safe Simulation Mode Active');
+    console.info(`[Email Service - Simulated] To: ${primaryRecipient.email} | Subject: "${options.subject}" | Reason: ${reason}`);
     
     const simulatedResult: EmailSendResult = {
       success: true,
       messageId: `sim_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       status: 'simulated',
       provider: 'simulation',
+      warning: config.keyWarning,
       timestamp
     };
 
@@ -263,6 +317,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
       status: 'simulated',
       provider: 'simulation',
       providerMessageId: simulatedResult.messageId,
+      errorMessage: config.keyWarning,
       htmlPreview: options.htmlContent,
       metadata: options.metadata
     });
@@ -302,8 +357,43 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
     const responseData: any = await brevoResponse.json().catch(() => ({}));
 
     if (!brevoResponse.ok) {
-      const errorMsg = responseData?.message || `Brevo API returned status ${brevoResponse.status}`;
-      console.error(`[Email Service - Brevo Error ${brevoResponse.status}]:`, errorMsg);
+      const rawError = responseData?.message || responseData?.error || `HTTP status ${brevoResponse.status}`;
+      let detailedMsg = `Brevo API error (${brevoResponse.status}): ${rawError}`;
+
+      if (brevoResponse.status === 401) {
+        detailedMsg = `Brevo API Key Unauthorized (${rawError}). Please verify that your BREVO_API_KEY is active in your Brevo account (app.brevo.com -> SMTP & API).`;
+      } else if (brevoResponse.status === 400 && String(rawError).toLowerCase().includes('sender')) {
+        detailedMsg = `Brevo Sender Email Unverified (${rawError}). The sender "${senderObj.email}" must be verified in Brevo Senders & IP.`;
+      }
+
+      console.error(`[Email Service - Brevo Error ${brevoResponse.status}]:`, detailedMsg);
+
+      // If fallback to simulation is allowed (e.g. for test runs or graceful degradation)
+      if (options.allowSimulationFallback) {
+        console.warn(`[Email Service] Falling back to simulation mode due to Brevo provider error: ${detailedMsg}`);
+        const fallbackId = `sim_fallback_${Date.now()}`;
+        recordEmailLog({
+          recipient: primaryRecipient.email,
+          recipientName: primaryRecipient.name,
+          notificationType: options.notificationType || 'general',
+          subject: options.subject,
+          status: 'simulated',
+          provider: 'simulation',
+          providerMessageId: fallbackId,
+          errorMessage: `Live dispatch failed (${detailedMsg}). Logged via simulation fallback.`,
+          htmlPreview: options.htmlContent,
+          metadata: options.metadata
+        });
+
+        return {
+          success: true,
+          messageId: fallbackId,
+          status: 'simulated',
+          provider: 'simulation',
+          warning: detailedMsg,
+          timestamp
+        };
+      }
 
       const errorResult: EmailSendResult = {
         success: false,
@@ -311,7 +401,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
         provider: 'brevo',
         error: {
           code: 'EMAIL_PROVIDER_ERROR',
-          message: errorMsg,
+          message: detailedMsg,
           details: responseData
         },
         timestamp
@@ -324,7 +414,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
         subject: options.subject,
         status: 'failed',
         provider: 'brevo',
-        errorMessage: errorMsg,
+        errorMessage: detailedMsg,
         htmlPreview: options.htmlContent,
         metadata: options.metadata
       });
@@ -359,6 +449,31 @@ export async function sendEmail(options: SendEmailOptions): Promise<EmailSendRes
   } catch (err: any) {
     const errorMsg = err?.message || 'Network exception connecting to Brevo API';
     console.error('[Email Service - Network Exception]:', errorMsg);
+
+    if (options.allowSimulationFallback) {
+      const fallbackId = `sim_neterr_${Date.now()}`;
+      recordEmailLog({
+        recipient: primaryRecipient.email,
+        recipientName: primaryRecipient.name,
+        notificationType: options.notificationType || 'general',
+        subject: options.subject,
+        status: 'simulated',
+        provider: 'simulation',
+        providerMessageId: fallbackId,
+        errorMessage: `Network error (${errorMsg}). Logged via simulation fallback.`,
+        htmlPreview: options.htmlContent,
+        metadata: options.metadata
+      });
+
+      return {
+        success: true,
+        messageId: fallbackId,
+        status: 'simulated',
+        provider: 'simulation',
+        warning: `Network exception connecting to Brevo (${errorMsg}). Safe simulation mode delivered preview.`,
+        timestamp
+      };
+    }
 
     const errorResult: EmailSendResult = {
       success: false,

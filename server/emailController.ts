@@ -574,6 +574,9 @@ export async function getEmailStatus(req: Request, res: Response) {
     return res.status(200).json({
       success: true,
       isConfigured: config.isConfigured,
+      status: config.status,
+      keyWarning: config.keyWarning,
+      maskedKey: config.maskedKey,
       senderEmail: config.senderEmail,
       senderName: config.senderName,
       adminEmail: config.adminEmail,
@@ -664,12 +667,135 @@ export async function handleRetryEmail(req: Request, res: Response) {
 }
 
 /**
- * 13. Test Email Runner for Admins
+ * Helper to render any test notification template with realistic preview data
+ */
+export function renderTestNotification(notificationType: string, testEmail: string, config: ReturnType<typeof getBrevoConfig>) {
+  let subject = 'Brevo Integration Test - Imam Malik College';
+  let htmlContent = '';
+  let textContent = '';
+
+  switch (notificationType) {
+    case 'registration_user': {
+      const tpl = getRegistrationUserTemplate({
+        name: 'Test Student (Ahmad Al-Mansur)',
+        email: testEmail,
+        role: 'Student'
+      });
+      subject = `[TEST] ${tpl.subject}`;
+      htmlContent = tpl.html;
+      textContent = tpl.text;
+      break;
+    }
+    case 'registration_admin': {
+      const tpl = getRegistrationAdminTemplate({
+        name: 'Test Student (Ahmad Al-Mansur)',
+        email: testEmail,
+        phone: '+234 801 234 5678',
+        role: 'Student'
+      });
+      subject = `[TEST] ${tpl.subject}`;
+      htmlContent = tpl.html;
+      textContent = tpl.text;
+      break;
+    }
+    case 'application_submitted': {
+      const tpl = getApplicationSubmittedUserTemplate({
+        applicantName: 'Test Applicant (Fatima Ibrahim)',
+        referenceNumber: 'IMSC-2026-9042',
+        targetClass: 'JSS 1 (Tahfiz Science)'
+      });
+      subject = `[TEST] ${tpl.subject}`;
+      htmlContent = tpl.html;
+      textContent = tpl.text;
+      break;
+    }
+    case 'payment_success': {
+      const tpl = getPaymentSuccessTemplate({
+        customerName: 'Test Guardian / Candidate',
+        amount: 5000,
+        reference: `PAY-TEST-${Date.now().toString().slice(-6)}`,
+        description: 'Admission Processing & Screening Application Form',
+        receiptNumber: 'REC-ADM-2026-88'
+      });
+      subject = `[TEST] ${tpl.subject}`;
+      htmlContent = tpl.html;
+      textContent = tpl.text;
+      break;
+    }
+    case 'payment_failed': {
+      const tpl = getPaymentFailedTemplate({
+        customerName: 'Test Candidate',
+        amount: 5000,
+        reference: `FAIL-TEST-${Date.now().toString().slice(-6)}`,
+        description: 'Admission Processing Fee'
+      });
+      subject = `[TEST] ${tpl.subject}`;
+      htmlContent = tpl.html;
+      textContent = tpl.text;
+      break;
+    }
+    case 'status_approved': {
+      const tpl = getStatusChangeTemplate({
+        applicantName: 'Test Admitted Candidate',
+        referenceNumber: 'IMSC-2026-9042',
+        newStatus: 'Approved',
+        targetClass: 'JSS 1 Tahfiz Science',
+        studentId: 'IMC20260140',
+        adminInstructions: 'Congratulations! Resumption date is September 14, 2026. Please bring original birth certificate, 4 colored passport photographs, and your screening receipt.'
+      });
+      subject = `[TEST] ${tpl.subject}`;
+      htmlContent = tpl.html;
+      textContent = tpl.text;
+      break;
+    }
+    case 'contact_form': {
+      const tpl = getContactFormAdminTemplate({
+        name: 'Prospective Parent (Mallam Musa)',
+        email: testEmail,
+        phone: '+234 803 111 2233',
+        subject: 'Boarding Facilities and Tahfiz Curriculum Inquiry',
+        message: 'Assalamu Alaikum. We would like to inquire about the boarding accommodation facilities and daily Quran memorization timetable for new JSS 1 intakes.'
+      });
+      subject = `[TEST] ${tpl.subject}`;
+      htmlContent = tpl.html;
+      textContent = tpl.text;
+      break;
+    }
+    case 'password_reset': {
+      const tpl = getPasswordResetOTPTemplate({
+        name: 'Test Account',
+        otpCode: '528914',
+        expiresInMinutes: 15
+      });
+      subject = `[TEST] ${tpl.subject}`;
+      htmlContent = tpl.html;
+      textContent = tpl.text;
+      break;
+    }
+    default: {
+      const tpl = getTestEmailTemplate({
+        testRecipient: testEmail,
+        senderName: config.senderName,
+        senderEmail: config.senderEmail,
+        provider: config.isConfigured ? 'Brevo Transactional API' : 'Simulation Mode'
+      });
+      subject = tpl.subject;
+      htmlContent = tpl.html;
+      textContent = tpl.text;
+      break;
+    }
+  }
+
+  return { subject, htmlContent, textContent };
+}
+
+/**
+ * 13. Test Email Runner for Admins (Single Template)
  * POST /api/email/test
  */
 export async function handleTestEmail(req: Request, res: Response) {
   try {
-    const { testEmail, type } = req.body;
+    const { testEmail, type, mode } = req.body;
 
     if (!testEmail || !isValidEmail(testEmail)) {
       return res.status(400).json({
@@ -680,121 +806,10 @@ export async function handleTestEmail(req: Request, res: Response) {
 
     const config = getBrevoConfig();
     const notificationType = type || 'system_test';
-    let subject = 'Brevo Integration Test - Imam Malik College';
-    let htmlContent = '';
-    let textContent = '';
+    const isSimulationMode = mode === 'simulation';
+    const isStrictLive = mode === 'live';
 
-    switch (notificationType) {
-      case 'registration_user': {
-        const tpl = getRegistrationUserTemplate({
-          name: 'Test Student',
-          email: testEmail,
-          role: 'Student'
-        });
-        subject = `[TEST] ${tpl.subject}`;
-        htmlContent = tpl.html;
-        textContent = tpl.text;
-        break;
-      }
-      case 'registration_admin': {
-        const tpl = getRegistrationAdminTemplate({
-          name: 'Test Student',
-          email: testEmail,
-          phone: '+234 801 234 5678',
-          role: 'Student'
-        });
-        subject = `[TEST] ${tpl.subject}`;
-        htmlContent = tpl.html;
-        textContent = tpl.text;
-        break;
-      }
-      case 'application_submitted': {
-        const tpl = getApplicationSubmittedUserTemplate({
-          applicantName: 'Test Applicant',
-          referenceNumber: 'IMSC-2026-TEST',
-          targetClass: 'JSS 1 (Tahfiz Science)'
-        });
-        subject = `[TEST] ${tpl.subject}`;
-        htmlContent = tpl.html;
-        textContent = tpl.text;
-        break;
-      }
-      case 'payment_success': {
-        const tpl = getPaymentSuccessTemplate({
-          customerName: 'Test Guardian / Candidate',
-          amount: 5000,
-          reference: `TEST-PAY-${Date.now().toString().slice(-6)}`,
-          description: 'Admission Application & Screening Form',
-          receiptNumber: 'REC-ADM-TEST'
-        });
-        subject = `[TEST] ${tpl.subject}`;
-        htmlContent = tpl.html;
-        textContent = tpl.text;
-        break;
-      }
-      case 'payment_failed': {
-        const tpl = getPaymentFailedTemplate({
-          customerName: 'Test Candidate',
-          amount: 5000,
-          reference: `FAIL-${Date.now().toString().slice(-6)}`,
-          description: 'Admission Processing Fee'
-        });
-        subject = `[TEST] ${tpl.subject}`;
-        htmlContent = tpl.html;
-        textContent = tpl.text;
-        break;
-      }
-      case 'status_approved': {
-        const tpl = getStatusChangeTemplate({
-          applicantName: 'Test Admitted Candidate',
-          referenceNumber: 'IMSC-2026-TEST',
-          newStatus: 'Approved',
-          targetClass: 'JSS 1 Tahfiz',
-          studentId: 'IMC20269999',
-          adminInstructions: 'Congratulations! Please bring 4 passport photos and original birth certificate on resumption day.'
-        });
-        subject = `[TEST] ${tpl.subject}`;
-        htmlContent = tpl.html;
-        textContent = tpl.text;
-        break;
-      }
-      case 'contact_form': {
-        const tpl = getContactFormAdminTemplate({
-          name: 'Prospective Parent',
-          email: testEmail,
-          phone: '+234 803 000 0000',
-          subject: 'Inquiry regarding boarding tahfiz program',
-          message: 'Hello, I would like to know the resumption dates and requirements for the junior secondary boarding school.'
-        });
-        subject = `[TEST] ${tpl.subject}`;
-        htmlContent = tpl.html;
-        textContent = tpl.text;
-        break;
-      }
-      case 'password_reset': {
-        const tpl = getPasswordResetOTPTemplate({
-          name: 'Test Account',
-          otpCode: '849201',
-          expiresInMinutes: 15
-        });
-        subject = `[TEST] ${tpl.subject}`;
-        htmlContent = tpl.html;
-        textContent = tpl.text;
-        break;
-      }
-      default: {
-        const tpl = getTestEmailTemplate({
-          testRecipient: testEmail,
-          senderName: config.senderName,
-          senderEmail: config.senderEmail,
-          provider: config.isConfigured ? 'Brevo Transactional API' : 'Simulation Mode'
-        });
-        subject = tpl.subject;
-        htmlContent = tpl.html;
-        textContent = tpl.text;
-        break;
-      }
-    }
+    const { subject, htmlContent, textContent } = renderTestNotification(notificationType, testEmail, config);
 
     const result = await sendEmail({
       to: { email: testEmail, name: 'Admin Tester' },
@@ -802,21 +817,121 @@ export async function handleTestEmail(req: Request, res: Response) {
       htmlContent,
       textContent,
       notificationType: `test_${notificationType}`,
-      metadata: { isTestRun: true, triggeredAt: new Date().toISOString() }
+      metadata: { isTestRun: true, requestedMode: mode, triggeredAt: new Date().toISOString() },
+      forceSimulation: isSimulationMode,
+      allowSimulationFallback: !isStrictLive
     });
+
+    let message = `Test notification [${notificationType}] dispatched to ${testEmail}`;
+    if (result.status === 'simulated') {
+      message = `Test notification [${notificationType}] generated in Simulation Mode. (${result.warning || 'Safe simulation active'}).`;
+    } else if (result.status === 'sent') {
+      message = `Live Brevo test notification [${notificationType}] sent successfully to ${testEmail}!`;
+    }
 
     return res.status(200).json({
       success: result.success,
-      message: result.success 
-        ? `Test notification [${notificationType}] dispatched to ${testEmail}`
-        : 'Failed to send test email.',
-      result
+      status: result.status,
+      provider: result.provider,
+      message,
+      warning: result.warning || config.keyWarning,
+      result,
+      htmlPreview: htmlContent
     });
   } catch (error: any) {
     console.error('Error in handleTestEmail:', error);
     return res.status(500).json({
       success: false,
       error: { code: 'TEST_ERROR', message: error.message }
+    });
+  }
+}
+
+/**
+ * 14. Batch Test All 9 Email Notifications
+ * POST /api/email/test-all
+ */
+export async function handleTestAllEmails(req: Request, res: Response) {
+  try {
+    const { testEmail, mode } = req.body;
+
+    if (!testEmail || !isValidEmail(testEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'EMAIL_VALIDATION_ERROR', message: 'A valid test recipient email is required.' }
+      });
+    }
+
+    const config = getBrevoConfig();
+    const isSimulationMode = mode === 'simulation';
+    const isStrictLive = mode === 'live';
+
+    const testList = [
+      { type: 'registration_user', title: '1. Student Registration Confirmation' },
+      { type: 'registration_admin', title: '2. Admin Registration Alert' },
+      { type: 'application_submitted', title: '3. Admission Application Submitted' },
+      { type: 'payment_success', title: '4. Bursary Payment Receipt' },
+      { type: 'payment_failed', title: '5. Payment Failed Notice' },
+      { type: 'status_approved', title: '6. Admission Approved & Offer Letter' },
+      { type: 'contact_form', title: '7. Website Contact Form Message' },
+      { type: 'password_reset', title: '8. Password Reset OTP Code' },
+      { type: 'system_test', title: '9. System Connectivity Diagnostic' }
+    ];
+
+    const results = [];
+    let successfulCount = 0;
+    let failedCount = 0;
+
+    for (const item of testList) {
+      const { subject, htmlContent, textContent } = renderTestNotification(item.type, testEmail, config);
+
+      const result = await sendEmail({
+        to: { email: testEmail, name: 'Admin Tester' },
+        subject,
+        htmlContent,
+        textContent,
+        notificationType: `test_${item.type}`,
+        metadata: { isTestRun: true, isBatchTest: true, templateType: item.type, triggeredAt: new Date().toISOString() },
+        forceSimulation: isSimulationMode,
+        allowSimulationFallback: !isStrictLive
+      });
+
+      if (result.success) {
+        successfulCount++;
+      } else {
+        failedCount++;
+      }
+
+      results.push({
+        type: item.type,
+        title: item.title,
+        subject,
+        status: result.status,
+        provider: result.provider,
+        messageId: result.messageId,
+        warning: result.warning,
+        error: result.error?.message,
+        htmlPreview: htmlContent
+      });
+    }
+
+    const overallMode = isSimulationMode || !config.isConfigured ? 'simulation' : (failedCount === 0 ? 'live_brevo' : 'mixed');
+
+    return res.status(200).json({
+      success: true,
+      total: testList.length,
+      successful: successfulCount,
+      failed: failedCount,
+      mode: overallMode,
+      results,
+      keyWarning: config.keyWarning,
+      message: `Batch test completed: ${successfulCount} of ${testList.length} notification templates verified and processed successfully.`
+    });
+  } catch (error: any) {
+    console.error('Error in handleTestAllEmails:', error);
+    return res.status(500).json({
+      success: false,
+      error: { code: 'BATCH_TEST_ERROR', message: error.message }
     });
   }
 }

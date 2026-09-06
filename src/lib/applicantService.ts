@@ -730,13 +730,57 @@ export function extractCleanApplicantNames(data: any): { name: string; firstName
   };
 }
 
+// Total admitted students quota for entrance exam
+export const TOTAL_ADMITTED_STUDENTS = 140;
+
+// Helper to precisely match exam number, admission number, or serial number (1..140)
+export function matchExamOrAdmissionNumber(
+  storedExam: string | undefined | null,
+  storedSerial: number | undefined | null,
+  inputExam: string
+): boolean {
+  if (!inputExam) return false;
+  const inRaw = inputExam.trim().toLowerCase();
+  const inAlpha = inRaw.replace(/[^a-z0-9]/g, '');
+  if (!inAlpha) return false;
+
+  const stRaw = (storedExam || '').trim().toLowerCase();
+  const stAlpha = stRaw.replace(/[^a-z0-9]/g, '');
+
+  // 1. Exact string match or alphanumeric clean match (e.g. "IMSC/2026/001" vs "imsc2026001")
+  if (stRaw && (stRaw === inRaw || stAlpha === inAlpha)) return true;
+
+  // 2. Numeric extraction: match trailing digits (e.g. input "001" or "1" matching candidate "IMSC/2026/001")
+  const inNumbers = inRaw.match(/\d+/g);
+  const stNumbers = stRaw.match(/\d+/g);
+
+  if (inNumbers && inNumbers.length > 0 && stNumbers && stNumbers.length > 0) {
+    const inLast = parseInt(inNumbers[inNumbers.length - 1], 10);
+    const stLast = parseInt(stNumbers[stNumbers.length - 1], 10);
+    if (!isNaN(inLast) && !isNaN(stLast) && inLast === stLast && inLast >= 1 && inLast <= TOTAL_ADMITTED_STUDENTS) {
+      return true;
+    }
+  }
+
+  // 3. Match against stored serial number (1..140)
+  if (storedSerial && typeof storedSerial === 'number' && storedSerial >= 1 && storedSerial <= TOTAL_ADMITTED_STUDENTS) {
+    const inOnlyDigits = inRaw.replace(/[^0-9]/g, '');
+    const inNum = parseInt(inOnlyDigits, 10);
+    if (!isNaN(inNum) && inNum === storedSerial) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Helper to check if input matches candidate name (first name, surname, any name token, full name, or exam no)
 function isNameOrExamMatch(candidate: { name?: string; firstName?: string; lastName?: string; examNumber?: string; admissionNumber?: string }, passwordInput: string): boolean {
   const cleanInput = passwordInput.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
   if (!cleanInput) return false;
 
   // Common default or test passwords
-  if (['1234', '12345', '123456', 'password', 'student', 'pass', 'admin'].includes(cleanInput)) {
+  if (['1234', '12345', '123456', 'password', 'student', 'pass'].includes(cleanInput)) {
     return true;
   }
 
@@ -778,18 +822,31 @@ export async function verifyApplicantLogin(
 
   if (!cleanExamNo || !cleanFirstName) return null;
 
+  // Check if candidate is admitted according to criteria (score >= 40, passed, and not rejected, and serial <= 140)
+  const isCandidateAdmitted = (candidate: any): boolean => {
+    if (!candidate) return false;
+    const score = Number(candidate.entranceScore || candidate.score || 0);
+    const remark = String(candidate.remark || '').toLowerCase();
+    const status = String(candidate.admissionStatus || candidate.status || '').toLowerCase();
+    const serial = typeof candidate.serialNumber === 'number' ? candidate.serialNumber : 0;
+
+    if (status === 'rejected' || remark === 'failed') return false;
+    if (serial > TOTAL_ADMITTED_STUDENTS) return false;
+    return status === 'approved' || remark.includes('pass') || score >= 40;
+  };
+
   // 1. Check local storage cache
   const cached = safeStorage.getItem('imsc_applicants') || safeStorage.getItem('imsc_successful_applicants');
   if (cached) {
     try {
       const list: any[] = JSON.parse(cached);
       const match = list.find((a) => {
-        const aExam = String(a.examNumber || a.examNo || a.id || '').trim().toLowerCase();
-        const aExamAlpha = aExam.replace(/[^a-z0-9]/g, '');
-        const examMatches = aExam === cleanExamNo || aExamAlpha === cleanExamAlpha || aExam.includes(cleanExamNo) || cleanExamNo.includes(aExam);
+        const aExam = String(a.examNumber || a.examNo || a.id || '').trim();
+        const aSerial = typeof a.serialNumber === 'number' ? a.serialNumber : undefined;
+        const examMatches = matchExamOrAdmissionNumber(aExam, aSerial, rawExam);
         return examMatches && isNameOrExamMatch(a, firstNameInput);
       });
-      if (match) {
+      if (match && isCandidateAdmitted(match)) {
         const names = extractCleanApplicantNames(match);
         addDebugLog('Applicant Login', `Applicant matched via local storage: ${names.name} (${match.examNumber})`, 'success');
         return {
@@ -820,13 +877,13 @@ export async function verifyApplicantLogin(
 
       for (const row of candidates) {
         const examVal = String(row.exam_no || row.exam_number || row.admission_number || row.student_id || row.id || '').trim();
-        const examAlpha = examVal.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const examMatches = examVal.toLowerCase() === cleanExamNo || examAlpha === cleanExamAlpha || examVal.toLowerCase().includes(cleanExamNo) || cleanExamNo.includes(examVal.toLowerCase());
+        const serialVal = typeof row.serial_number === 'number' ? row.serial_number : undefined;
+        const examMatches = matchExamOrAdmissionNumber(examVal, serialVal, rawExam);
         
         const names = extractCleanApplicantNames(row);
         const nameMatches = isNameOrExamMatch({ ...row, ...names, examNumber: examVal }, firstNameInput);
 
-        if (examMatches && (nameMatches || examAlpha === cleanExamAlpha)) {
+        if (examMatches && nameMatches && isCandidateAdmitted(row)) {
           const gen = row.gender || inferGender(names.name, '');
           const assignedClass = row.target_class || row.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
           addDebugLog('Applicant Login', `Applicant matched via Supabase: ${names.name} (${examVal})`, 'success');
@@ -871,7 +928,7 @@ export async function verifyApplicantLogin(
       if (foundDoc) {
         const data = foundDoc.data() as any;
         const names = extractCleanApplicantNames(data);
-        if (isNameOrExamMatch({ ...data, ...names }, firstNameInput) || cleanExamAlpha === String(data.examNumber || '').toLowerCase().replace(/[^a-z0-9]/g, '')) {
+        if (isCandidateAdmitted(data) && isNameOrExamMatch({ ...data, ...names }, firstNameInput)) {
           const gen = data.gender || inferGender(names.name, '');
           const assignedClass = data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
           addDebugLog('Applicant Login', `Applicant matched via Firestore document: ${names.name}`, 'success');
@@ -885,8 +942,8 @@ export async function verifyApplicantLogin(
             examNumber: data.examNumber || data.examNo || rawExam,
             schoolName: data.schoolName || '',
             entranceScore: data.entranceScore || data.score || 80,
-            remark: (data.remark || '').toLowerCase().includes('pass') ? 'passed' : (Number(data.entranceScore || data.score) >= 40 ? 'passed' : 'failed'),
-            admissionStatus: data.status === 'approved' || (data.remark || '').toLowerCase().includes('pass') || Number(data.entranceScore || data.score) >= 40 ? 'approved' : 'rejected',
+            remark: 'passed',
+            admissionStatus: 'approved',
             targetClass: assignedClass,
             uploadedAt: data.createdAt || data.appliedDate
           };
@@ -909,24 +966,28 @@ export async function verifyApplicantLogin(
 
     if (matchingDocs.length > 0) {
       const data = matchingDocs[0].data() as any;
-      const names = extractCleanApplicantNames(data);
-      const gen = data.gender || inferGender(names.name, '');
-      const assignedClass = data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
-      return {
-        id: matchingDocs[0].id,
-        serialNumber: data.serialNumber || 1,
-        name: names.name,
-        firstName: names.firstName,
-        lastName: names.lastName,
-        gender: gen,
-        examNumber: data.examNumber || data.examNo || rawExam,
-        schoolName: data.schoolName || '',
-        entranceScore: data.entranceScore || data.score || 80,
-        remark: (data.remark || '').toLowerCase().includes('pass') ? 'passed' : (Number(data.entranceScore || data.score) >= 40 ? 'passed' : 'failed'),
-        admissionStatus: data.status === 'approved' || (data.remark || '').toLowerCase().includes('pass') || Number(data.entranceScore || data.score) >= 40 ? 'approved' : 'rejected',
-        targetClass: assignedClass,
-        uploadedAt: data.createdAt || data.appliedDate
-      };
+      if (isCandidateAdmitted(data)) {
+        const names = extractCleanApplicantNames(data);
+        if (isNameOrExamMatch({ ...data, ...names }, firstNameInput)) {
+          const gen = data.gender || inferGender(names.name, '');
+          const assignedClass = data.targetClass || (gen === 'female' ? 'JSS 1B' : 'JSS 1A');
+          return {
+            id: matchingDocs[0].id,
+            serialNumber: data.serialNumber || 1,
+            name: names.name,
+            firstName: names.firstName,
+            lastName: names.lastName,
+            gender: gen,
+            examNumber: data.examNumber || data.examNo || rawExam,
+            schoolName: data.schoolName || '',
+            entranceScore: data.entranceScore || data.score || 80,
+            remark: 'passed',
+            admissionStatus: 'approved',
+            targetClass: assignedClass,
+            uploadedAt: data.createdAt || data.appliedDate
+          };
+        }
+      }
     }
   } catch (err) {
     console.warn("Firestore 'applicants' lookup error:", err);
@@ -941,7 +1002,7 @@ export async function verifyApplicantLogin(
         const adm = (sData.admissionNumber || sData.examNumber || sData.studentId || '').trim();
         const cleanAdm = adm.toLowerCase();
         const cleanAdmAlpha = cleanAdm.replace(/[^a-z0-9]/g, '');
-        const admMatches = cleanAdm === cleanExamNo || cleanAdmAlpha === cleanExamAlpha || (adm && rawExam.includes(adm)) || (rawExam && adm.includes(rawExam));
+        const admMatches = cleanAdm === cleanExamNo || cleanAdmAlpha === cleanExamAlpha || matchExamOrAdmissionNumber(adm, sData.serialNumber, rawExam);
 
         const names = extractCleanApplicantNames(sData);
         if (admMatches && isNameOrExamMatch({ ...sData, ...names }, firstNameInput)) {
@@ -975,23 +1036,25 @@ export async function verifyApplicantLogin(
     const snapApp = await getDocs(qApp);
     if (!snapApp.empty) {
       const data = snapApp.docs[0].data() as any;
-      const names = extractCleanApplicantNames(data);
-      if (isNameOrExamMatch({ ...data, ...names }, firstNameInput)) {
-        const gender = data.gender || inferGender(names.name, data.gender);
-        return {
-          id: snapApp.docs[0].id,
-          serialNumber: 1,
-          name: names.name,
-          firstName: names.firstName,
-          lastName: names.lastName,
-          gender,
-          examNumber: data.examNumber || rawExam,
-          schoolName: data.schoolName || data.previousSchool || 'Imam Malik School',
-          entranceScore: data.entranceScore || data.score || 80,
-          remark: data.remark || 'passed',
-          admissionStatus: data.status || 'approved',
-          targetClass: data.targetClass || (gender === 'female' ? 'JSS 1B' : 'JSS 1A')
-        };
+      if (isCandidateAdmitted(data)) {
+        const names = extractCleanApplicantNames(data);
+        if (isNameOrExamMatch({ ...data, ...names }, firstNameInput)) {
+          const gender = data.gender || inferGender(names.name, data.gender);
+          return {
+            id: snapApp.docs[0].id,
+            serialNumber: 1,
+            name: names.name,
+            firstName: names.firstName,
+            lastName: names.lastName,
+            gender,
+            examNumber: data.examNumber || rawExam,
+            schoolName: data.schoolName || data.previousSchool || 'Imam Malik School',
+            entranceScore: data.entranceScore || data.score || 80,
+            remark: data.remark || 'passed',
+            admissionStatus: data.status || 'approved',
+            targetClass: data.targetClass || (gender === 'female' ? 'JSS 1B' : 'JSS 1A')
+          };
+        }
       }
     }
   } catch (err) {

@@ -14,7 +14,8 @@ import {
   getEmailStatus,
   getEmailLogsList,
   handleRetryEmail,
-  handleTestEmail
+  handleTestEmail,
+  handleTestAllEmails
 } from './server/emailController';
 
 async function startServer() {
@@ -48,6 +49,7 @@ async function startServer() {
   app.get('/api/email/logs', getEmailLogsList);
   app.post('/api/email/retry', handleRetryEmail);
   app.post('/api/email/test', handleTestEmail);
+  app.post('/api/email/test-all', handleTestAllEmails);
 
   // Vite middleware for development vs Static serving for production
   if (process.env.NODE_ENV !== 'production') {

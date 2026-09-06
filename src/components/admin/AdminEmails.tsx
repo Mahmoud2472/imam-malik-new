@@ -10,9 +10,12 @@ import {
   getEmailServiceStatus, 
   getEmailLogs, 
   sendTestEmail, 
+  sendTestAllEmails,
   retryEmailLog, 
   EmailLogItem, 
-  EmailServiceStatus 
+  EmailServiceStatus,
+  TestAllResponse,
+  TestAllEmailItemResult 
 } from '../../lib/emailService';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../lib/auth';
@@ -26,10 +29,22 @@ export default function AdminEmails() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'sent' | 'simulated' | 'failed'>('all');
   
   // Test Dispatch Form state
-  const [testEmail, setTestEmail] = useState(userData?.email || 'admin@imsc.edu.ng');
+  const [testEmail, setTestEmail] = useState(userData?.email || 'maitechitservices6@gmail.com');
   const [testType, setTestType] = useState('registration_user');
+  const [testMode, setTestMode] = useState<'auto' | 'simulation' | 'live'>('auto');
   const [isSendingTest, setIsSendingTest] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ 
+    success: boolean; 
+    message: string; 
+    status?: string; 
+    provider?: string; 
+    warning?: string;
+    htmlPreview?: string;
+  } | null>(null);
+
+  // Batch Test All state
+  const [isSendingBatch, setIsSendingBatch] = useState(false);
+  const [batchResult, setBatchResult] = useState<TestAllResponse | null>(null);
 
   // Retry state
   const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
@@ -37,6 +52,7 @@ export default function AdminEmails() {
   // Preview Modal
   const [previewLog, setPreviewLog] = useState<EmailLogItem | null>(null);
   const [showDnsGuide, setShowDnsGuide] = useState(false);
+  const [showKeyGuide, setShowKeyGuide] = useState(false);
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
@@ -71,10 +87,14 @@ export default function AdminEmails() {
     setTestResult(null);
 
     try {
-      const res = await sendTestEmail(testEmail, testType);
+      const res = await sendTestEmail(testEmail, testType, testMode);
       setTestResult({
         success: res.success,
-        message: res.message
+        message: res.message,
+        status: res.status,
+        provider: res.provider,
+        warning: res.warning,
+        htmlPreview: res.htmlPreview
       });
       // Refresh logs
       fetchDashboardData();
@@ -85,6 +105,27 @@ export default function AdminEmails() {
       });
     } finally {
       setIsSendingTest(false);
+    }
+  };
+
+  const handleRunBatchTest = async () => {
+    if (!testEmail || !testEmail.includes('@')) {
+      alert("Please enter a valid recipient email address before running batch tests.");
+      return;
+    }
+
+    setIsSendingBatch(true);
+    setBatchResult(null);
+
+    try {
+      const res = await sendTestAllEmails(testEmail, testMode);
+      setBatchResult(res);
+      // Refresh logs
+      fetchDashboardData();
+    } catch (err: any) {
+      alert(`Batch test error: ${err?.message || 'Failed to run batch tests.'}`);
+    } finally {
+      setIsSendingBatch(false);
     }
   };
 
@@ -174,19 +215,40 @@ export default function AdminEmails() {
                 status?.isConfigured ? "bg-emerald-400" : "bg-amber-400"
               )} />
               <span className="text-xs font-black uppercase tracking-widest text-amber-400">
-                {status?.isConfigured ? "Brevo Live API Connected" : "Simulation Mode Active"}
+                {status?.isConfigured 
+                  ? "Brevo Live API Connected" 
+                  : status?.status === 'invalid_key_format' 
+                    ? "Safe Simulation Mode (Invalid Key Detected)" 
+                    : "Simulation Mode Active"}
               </span>
             </div>
             <h3 className="text-lg font-bold">
               {status?.isConfigured 
                 ? "Live Transactional Email Service is Operational" 
-                : "Brevo API Key Pending — Running in Safe Simulation Mode"}
+                : status?.status === 'invalid_key_format'
+                  ? "Brevo API Key Format Issue — Safe Simulation Mode Engaged"
+                  : "Brevo Key Pending — Running in Safe Simulation Mode"}
             </h3>
             <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
               {status?.isConfigured
                 ? "Emails to applicants, students, parents, and administrators are dispatched directly through Brevo's high-deliverability SMTP infrastructure with zero client key exposure."
-                : "The application is currently simulating transactional email dispatch. All actions, templates, and triggers function seamlessly and are logged below. To activate real delivery, provide BREVO_API_KEY in your settings."}
+                : status?.keyWarning || "The application is currently running in Safe Simulation Mode. All actions, templates, and triggers function without failing and are logged below."}
             </p>
+            {status?.status === 'invalid_key_format' && (
+              <div className="pt-2 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowKeyGuide(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <HelpCircle size={14} />
+                  <span>How to get valid Brevo Key (xkeysib-...)</span>
+                </button>
+                <span className="text-[11px] text-amber-300/80">
+                  Current value: <code className="font-mono bg-black/40 px-1.5 py-0.5 rounded">{status.maskedKey || '102.89.46.224'}</code>
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 bg-white/10 p-4 rounded-xl backdrop-blur-sm border border-white/10 text-xs shrink-0">
@@ -256,7 +318,7 @@ export default function AdminEmails() {
               <h3 className="font-extrabold text-base">Brevo Test Console</h3>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Safely test any of the 8 notification templates to a single designated recipient.
+              Safely test any or all 9 transactional notification templates to your email address.
             </p>
           </div>
 
@@ -284,6 +346,47 @@ export default function AdminEmails() {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                Dispatch Mode
+              </label>
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setTestMode('auto')}
+                  className={cn(
+                    "py-1.5 rounded-lg transition-all cursor-pointer text-center",
+                    testMode === 'auto' ? "bg-white text-emerald-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                  )}
+                  title="Attempts Live Brevo if key is valid; safely falls back to Simulation if key is missing or rejected."
+                >
+                  Auto Fallback
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTestMode('simulation')}
+                  className={cn(
+                    "py-1.5 rounded-lg transition-all cursor-pointer text-center",
+                    testMode === 'simulation' ? "bg-white text-emerald-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                  )}
+                  title="Simulates delivery instantly and generates full HTML previews without calling Brevo API."
+                >
+                  Simulation
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTestMode('live')}
+                  className={cn(
+                    "py-1.5 rounded-lg transition-all cursor-pointer text-center",
+                    testMode === 'live' ? "bg-white text-emerald-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                  )}
+                  title="Forces direct Brevo HTTP API dispatch (requires valid xkeysib- key)."
+                >
+                  Live Brevo
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
                 Test Recipient Address
               </label>
               <input
@@ -299,29 +402,133 @@ export default function AdminEmails() {
               </p>
             </div>
 
-            <button
-              type="submit"
-              disabled={isSendingTest}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-white font-bold text-xs transition-all shadow-md active:scale-98 disabled:opacity-50 cursor-pointer"
-            >
-              <Send size={14} className={cn(isSendingTest && "animate-pulse")} />
-              <span>{isSendingTest ? "Dispatching via Brevo..." : "Send Test Notification"}</span>
-            </button>
+            <div className="space-y-2 pt-1">
+              <button
+                type="submit"
+                disabled={isSendingTest || isSendingBatch}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-white font-bold text-xs transition-all shadow-md active:scale-98 disabled:opacity-50 cursor-pointer"
+              >
+                <Send size={14} className={cn(isSendingTest && "animate-pulse")} />
+                <span>{isSendingTest ? "Dispatching Single Test..." : "Send Selected Test Template"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleRunBatchTest}
+                disabled={isSendingTest || isSendingBatch}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 font-bold text-xs transition-all shadow-sm active:scale-98 disabled:opacity-50 cursor-pointer"
+              >
+                <Sparkles size={14} className={cn("text-amber-600", isSendingBatch && "animate-spin")} />
+                <span>{isSendingBatch ? "Running Batch Test (All 9)..." : "Test All 9 Templates At Once"}</span>
+              </button>
+            </div>
           </form>
 
-          {/* Test Feedback */}
+          {/* Single Test Feedback */}
           {testResult && (
             <div className={cn(
-              "p-4 rounded-xl border text-xs leading-relaxed space-y-1",
+              "p-4 rounded-xl border text-xs leading-relaxed space-y-2",
               testResult.success 
                 ? "bg-emerald-50 text-emerald-900 border-emerald-200" 
                 : "bg-red-50 text-red-900 border-red-200"
             )}>
-              <div className="flex items-center gap-2 font-bold">
-                {testResult.success ? <CheckCircle2 size={16} className="text-emerald-700" /> : <AlertCircle size={16} className="text-red-600" />}
-                <span>{testResult.success ? "Test Dispatch Completed" : "Test Dispatch Failed"}</span>
+              <div className="flex items-center justify-between font-bold">
+                <div className="flex items-center gap-2">
+                  {testResult.success ? <CheckCircle2 size={16} className="text-emerald-700" /> : <AlertCircle size={16} className="text-red-600" />}
+                  <span>{testResult.success ? "Test Dispatch Completed" : "Test Dispatch Failed"}</span>
+                </div>
+                {testResult.status && (
+                  <span className={cn(
+                    "px-2 py-0.5 rounded text-[10px] uppercase font-black tracking-wider",
+                    testResult.status === 'sent' ? "bg-emerald-200 text-emerald-900" : "bg-amber-200 text-amber-900"
+                  )}>
+                    {testResult.status}
+                  </span>
+                )}
               </div>
               <p>{testResult.message}</p>
+              {testResult.warning && (
+                <div className="bg-amber-100 text-amber-900 border border-amber-200 p-2 rounded text-[11px] font-medium">
+                  ⚠️ {testResult.warning}
+                </div>
+              )}
+              {testResult.htmlPreview && (
+                <button
+                  type="button"
+                  onClick={() => setPreviewLog({
+                    id: 'test_preview',
+                    recipient: testEmail,
+                    notificationType: testType,
+                    subject: `Preview: ${testType}`,
+                    status: (testResult.status as any) || 'simulated',
+                    provider: (testResult.provider as any) || 'simulation',
+                    createdAt: new Date().toISOString(),
+                    htmlPreview: testResult.htmlPreview
+                  })}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] transition-colors cursor-pointer"
+                >
+                  <Eye size={13} />
+                  <span>Preview Rendered Email Content</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Batch Test Results Summary */}
+          {batchResult && (
+            <div className="bg-slate-900 text-white p-4 rounded-xl border border-slate-800 text-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-400" />
+                  <span className="font-extrabold text-sm">Batch Test Results</span>
+                </div>
+                <span className="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider">
+                  {batchResult.successful}/{batchResult.total} Verified
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300">{batchResult.message}</p>
+              {batchResult.keyWarning && (
+                <p className="text-[10px] text-amber-300 bg-amber-950/60 p-2 rounded border border-amber-800">
+                  ⚠️ {batchResult.keyWarning}
+                </p>
+              )}
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                {batchResult.results.map((r, i) => (
+                  <div key={i} className="flex items-center justify-between p-2 rounded bg-slate-800/80 hover:bg-slate-800 text-[11px] gap-2">
+                    <div className="truncate flex-1">
+                      <span className="font-bold text-slate-200 block truncate">{r.title}</span>
+                      <span className="text-[10px] text-slate-400 truncate block">{r.subject}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={cn(
+                        "px-1.5 py-0.5 rounded text-[9px] font-black uppercase",
+                        r.status === 'sent' ? "bg-emerald-500/30 text-emerald-300" : "bg-amber-500/30 text-amber-300"
+                      )}>
+                        {r.status}
+                      </span>
+                      {r.htmlPreview && (
+                        <button
+                          type="button"
+                          onClick={() => setPreviewLog({
+                            id: `batch_${i}`,
+                            recipient: testEmail,
+                            notificationType: r.type,
+                            subject: r.subject,
+                            status: r.status,
+                            provider: r.provider,
+                            createdAt: new Date().toISOString(),
+                            htmlPreview: r.htmlPreview
+                          })}
+                          className="p-1 hover:text-amber-400 text-slate-400 transition-colors"
+                          title="Preview HTML"
+                        >
+                          <Eye size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -609,6 +816,96 @@ export default function AdminEmails() {
                   className="px-5 py-2 rounded-xl bg-emerald-950 text-white font-bold text-xs hover:bg-emerald-900 cursor-pointer"
                 >
                   Close Guide
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Brevo API Key Setup Guide Modal */}
+      <AnimatePresence>
+        {showKeyGuide && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden"
+            >
+              <div className="p-5 bg-amber-950 text-white flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <HelpCircle className="text-amber-400" size={20} />
+                  <h3 className="font-bold text-sm">How to Obtain Your Brevo v3 API Key</h3>
+                </div>
+                <button
+                  onClick={() => setShowKeyGuide(false)}
+                  className="p-1 text-white/70 hover:text-white rounded-lg hover:bg-white/10 cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-4 text-xs text-slate-700 leading-relaxed">
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900">
+                  <p className="font-bold mb-1">Notice on Current Key Value:</p>
+                  <p className="text-[11px]">
+                    The environment currently has <code className="bg-white px-1.5 py-0.5 rounded border border-amber-300 font-mono">102.89.46.224</code>, which is an IP address. Brevo rejects IP addresses as API keys with <code className="text-red-700 font-bold">401 Unauthorized (Key not found)</code>.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="font-bold text-slate-900">Follow these 4 quick steps to generate your real Brevo key:</p>
+                  
+                  <div className="flex gap-3 items-start bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span className="w-5 h-5 rounded-full bg-emerald-950 text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">1</span>
+                    <div>
+                      <p className="font-bold text-slate-900">Log into your Brevo account</p>
+                      <p className="text-[11px] text-slate-500">Visit <a href="https://app.brevo.com" target="_blank" rel="noreferrer" className="text-emerald-700 underline font-semibold">app.brevo.com</a></p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 items-start bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span className="w-5 h-5 rounded-full bg-emerald-950 text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">2</span>
+                    <div>
+                      <p className="font-bold text-slate-900">Navigate to SMTP & API Keys</p>
+                      <p className="text-[11px] text-slate-500">Click your profile name in the top-right corner &gt; Select <strong>SMTP & API Keys</strong>.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 items-start bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span className="w-5 h-5 rounded-full bg-emerald-950 text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">3</span>
+                    <div>
+                      <p className="font-bold text-slate-900">Generate a new v3 API Key</p>
+                      <p className="text-[11px] text-slate-500">Click <strong>Generate a new API key</strong>, name it (e.g., "Imam Malik Portal"), and copy it. It starts with <code className="font-mono font-bold text-emerald-800">xkeysib-...</code></p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 items-start bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <span className="w-5 h-5 rounded-full bg-emerald-950 text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">4</span>
+                    <div>
+                      <p className="font-bold text-slate-900">Save in Cloud Run / Environment Settings</p>
+                      <p className="text-[11px] text-slate-500">Set <code className="font-mono font-bold text-slate-800">BREVO_API_KEY</code> to your copied key in AI Studio Settings or Cloud Run Environment Variables.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-[11px]">
+                  <strong>Meanwhile:</strong> The portal runs in <strong>Safe Simulation Mode</strong>. All student and admin actions, tests, and logs execute normally with zero broken pages or error crashes.
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+                <button
+                  onClick={() => setShowKeyGuide(false)}
+                  className="px-5 py-2 rounded-xl bg-emerald-950 text-white font-bold text-xs hover:bg-emerald-900 cursor-pointer"
+                >
+                  Got It
                 </button>
               </div>
             </motion.div>

@@ -11,7 +11,7 @@ import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { addDebugLog } from '../../lib/debug';
 import { useAuth } from '../../lib/auth';
 import { safeStorage } from '../../lib/safeStorage';
-import { verifyApplicantLogin, getSuccessfulApplicants, ParsedApplicant } from '../../lib/applicantService';
+import { verifyApplicantLogin, ParsedApplicant } from '../../lib/applicantService';
 import { sendRegistrationEmail, requestPasswordResetOTP, verifyPasswordResetOTP } from '../../lib/emailService';
 
 export default function LoginPage() {
@@ -29,7 +29,6 @@ export default function LoginPage() {
   const [loadingStatus, setLoadingStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [sampleApplicants, setSampleApplicants] = useState<ParsedApplicant[]>([]);
   
   // Forgot Password / OTP Modal State
   const [showForgotModal, setShowForgotModal] = useState(false);
@@ -64,62 +63,47 @@ export default function LoginPage() {
     const returnTo = searchParams.get('return-to');
     if (qPortal === 'admin' || qRole === 'admin' || returnTo?.includes('admin')) {
       setAuthType('admin');
-      setEmail('admin@school.com');
+      setEmail('');
+      setPassword('');
     }
-
-    // Load available applicants if real records exist in database
-    getSuccessfulApplicants().then(list => {
-      if (list && list.length > 0) {
-        setSampleApplicants(list.slice(0, 3));
-      } else {
-        setSampleApplicants([]);
-      }
-    });
   }, [searchParams]);
 
   // Handle Applicant Login via Exam Number & First Name
   const handleApplicantExamLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!examNumber.trim() || !firstNamePassword.trim()) {
-      setError('Please provide both your Exam Number and First Name.');
+      setError('Please provide both your Student/Exam Number and First Name.');
       return;
     }
 
     setLoading(true);
     setError(null);
     setSuccess(null);
-    setLoadingStatus('Verifying entrance examination credentials...');
+    setLoadingStatus('Verifying student admission records...');
 
     try {
       // 1. Verify in applicant service
       const matched = await verifyApplicantLogin(examNumber, firstNamePassword);
       
-      let candidate: ParsedApplicant;
-      if (matched) {
-        candidate = matched;
-      } else {
-        // If not found in database, check if first name is in exam input or provide flexible demo fallback
-        const cleanExam = examNumber.trim().toUpperCase();
-        const cleanFirst = firstNamePassword.trim();
-        const firstCap = cleanFirst.charAt(0).toUpperCase() + cleanFirst.slice(1).toLowerCase();
-        const isFemale = cleanFirst.toLowerCase().includes('fatima') || cleanFirst.toLowerCase().includes('maryam') || cleanFirst.toLowerCase().includes('amina') || cleanFirst.toLowerCase().includes('aisha') || cleanFirst.toLowerCase().includes('zainab');
-        const gender = isFemale ? 'female' : 'male';
-        
-        candidate = {
-          serialNumber: 1,
-          name: `${firstCap} Candidate`,
-          firstName: firstCap,
-          lastName: 'Candidate',
-          gender,
-          examNumber: cleanExam,
-          schoolName: 'Primary School Academy',
-          entranceScore: 80,
-          remark: 'passed',
-          admissionStatus: 'approved',
-          targetClass: gender === 'female' ? 'JSS 1B' : 'JSS 1A',
-          uploadedAt: new Date().toISOString()
-        };
+      if (!matched) {
+        setLoading(false);
+        setError("Student not admitted or not found.");
+        return;
       }
+
+      // Check admission status and 140 student quota
+      const isPassed = matched.admissionStatus === 'approved' || 
+                       matched.remark === 'passed' || 
+                       (typeof matched.entranceScore === 'number' && matched.entranceScore >= 40);
+      const isWithin140 = !matched.serialNumber || (typeof matched.serialNumber === 'number' && matched.serialNumber <= 140);
+
+      if (!isPassed || matched.admissionStatus === 'rejected' || !isWithin140) {
+        setLoading(false);
+        setError("Student not admitted or not found.");
+        return;
+      }
+
+      const candidate: ParsedApplicant = matched;
 
       const userId = `app_${candidate.examNumber.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       const cacheKey = `imsc_user_data_${userId}`;
@@ -211,7 +195,7 @@ export default function LoginPage() {
 
     if (mode === 'register') {
       if (isAdminTarget) {
-        setError('Administrator accounts cannot be registered publicly. Please sign in with username: admin@school.com and password: admin123.');
+        setError('Administrator accounts cannot be registered publicly. Please sign in with your authorized administrator credentials.');
         return;
       }
 
@@ -280,17 +264,17 @@ export default function LoginPage() {
     // STRICT ADMINISTRATOR AUTHENTICATION GATEWAY
     if (isAdminTarget) {
       if (emailLower !== 'admin@school.com') {
-        setError('Access Denied: Invalid administrator username. Username must strictly be "admin@school.com".');
+        setError('Access Denied: Invalid administrator credentials.');
         return;
       }
 
       if (!password || password.trim() === '') {
-        setError('Access Denied: Password is required. Please enter the administrator password.');
+        setError('Access Denied: Password is required. Please enter your administrator password.');
         return;
       }
 
       if (password !== 'admin123') {
-        setError('Access Denied: Incorrect administrator password. Password must strictly be "admin123".');
+        setError('Access Denied: Invalid administrator credentials.');
         return;
       }
 
@@ -487,8 +471,8 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Login Type Switcher Tabs (Student Exam Login vs Staff Email Login vs Admin Portal) */}
-          {mode === 'login' && (
+          {/* Login Type Switcher Tabs (Client Dashboard: Student vs Staff) */}
+          {mode === 'login' && authType !== 'admin' && (
             <div className="flex p-1 bg-slate-100 rounded-2xl mb-6 gap-1">
               <button
                 type="button"
@@ -520,22 +504,28 @@ export default function LoginPage() {
               >
                 <Mail size={15} /> Staff / Email
               </button>
+            </div>
+          )}
+
+          {/* Admin Mode Switcher Banner */}
+          {mode === 'login' && authType === 'admin' && (
+            <div className="p-3 bg-amber-50/90 rounded-2xl mb-6 border border-amber-200 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-950 font-bold text-xs">
+                <Shield size={16} className="text-amber-600" />
+                <span>School Administrator Gateway</span>
+              </div>
               <button
                 type="button"
                 onClick={() => {
-                  setAuthType('admin');
-                  setEmail('admin@school.com');
+                  setAuthType('student-exam');
+                  setEmail('');
                   setPassword('');
                   setError(null);
                   setSuccess(null);
                 }}
-                className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                  authType === 'admin'
-                    ? 'bg-amber-600 text-white shadow-md'
-                    : 'text-slate-600 hover:text-amber-950'
-                }`}
+                className="text-[11px] font-bold text-emerald-900 hover:text-emerald-700 underline cursor-pointer"
               >
-                <Shield size={15} /> Admin Portal
+                &larr; Switch to Student / Staff
               </button>
             </div>
           )}
@@ -562,19 +552,18 @@ export default function LoginPage() {
                 <Shield size={20} className="text-amber-600 shrink-0 mt-0.5" />
                 <div>
                   <h4 className="font-bold text-xs uppercase tracking-wider text-amber-950 flex items-center gap-1.5">
-                    <span>Strict Administrator Gateway</span>
-                    <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-mono font-bold">PROTECTED</span>
+                    <span>Restricted Administrator Gateway</span>
+                    <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-mono font-bold">AUTHORIZED ONLY</span>
                   </h4>
                   <p className="text-[11px] text-amber-900 mt-1 leading-relaxed">
-                    Admin access strictly requires verified credentials before accessing. Sign in with username: <strong className="font-mono text-amber-950 bg-amber-200/70 px-1 py-0.5 rounded font-bold">admin@school.com</strong> and password: <strong className="font-mono text-amber-950 bg-amber-200/70 px-1 py-0.5 rounded font-bold">admin123</strong>.
+                    This portal is strictly for authorized school administration. Enter your administrator email and password to proceed.
                   </p>
                 </div>
               </div>
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between ml-1">
-                  <label className="text-xs font-bold text-slate-700 uppercase">Administrator Username</label>
-                  <span className="text-[10px] text-slate-500 font-mono">admin@school.com</span>
+                  <label className="text-xs font-bold text-slate-700 uppercase">Administrator Username / Email</label>
                 </div>
                 <div className="relative">
                   <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -582,8 +571,8 @@ export default function LoginPage() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none text-xs font-medium font-mono"
-                    placeholder="admin@school.com"
+                    className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none text-xs font-medium"
+                    placeholder="Enter administrator email"
                     required
                   />
                 </div>
@@ -592,7 +581,6 @@ export default function LoginPage() {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between ml-1">
                   <label className="text-xs font-bold text-slate-700 uppercase">Administrator Password</label>
-                  <span className="text-[10px] text-slate-500 font-mono">admin123</span>
                 </div>
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -600,8 +588,8 @@ export default function LoginPage() {
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-12 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none text-xs font-mono font-medium"
-                    placeholder="Enter admin password"
+                    className="w-full pl-12 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none text-xs font-medium"
+                    placeholder="Enter administrator password"
                     required
                   />
                   <button
@@ -613,21 +601,6 @@ export default function LoginPage() {
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-[11px] text-slate-400">Strict login verification</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail('admin@school.com');
-                    setPassword('admin123');
-                    setError(null);
-                  }}
-                  className="text-[11px] text-amber-700 font-bold hover:text-amber-900 underline cursor-pointer"
-                >
-                  Fill admin credentials
-                </button>
               </div>
 
               <button
@@ -642,7 +615,7 @@ export default function LoginPage() {
                   </div>
                 ) : (
                   <span className="flex items-center gap-2">
-                    <Shield size={18} /> Sign In to Admin Portal
+                    <Shield size={18} /> Sign In to Admin Console
                   </span>
                 )}
               </button>
@@ -650,15 +623,15 @@ export default function LoginPage() {
           ) : mode === 'login' && authType === 'student-exam' ? (
             /* Form Option 2: Student Login with Exam No & First Name */
             <form onSubmit={handleApplicantExamLogin} className="space-y-4">
-              <div className="p-3.5 bg-amber-50/80 rounded-xl border border-amber-200 text-xs text-amber-900 leading-normal flex items-start gap-2">
-                <Sparkles size={16} className="text-amber-600 shrink-0 mt-0.5" />
+              <div className="p-3.5 bg-emerald-50/80 rounded-xl border border-emerald-200 text-xs text-emerald-950 leading-normal flex items-start gap-2">
+                <Sparkles size={16} className="text-emerald-700 shrink-0 mt-0.5" />
                 <div>
-                  <strong>Students & Successful Applicants:</strong> Enter your <strong>Exam Number</strong> as Username and your <strong>First Name</strong> as Password.
+                  <strong>Students & Admitted Applicants:</strong> Enter your assigned <strong>Student / Exam Number</strong> as Username and your <strong>First Name</strong> as Password.
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 uppercase ml-1">Exam Number (Username)</label>
+                <label className="text-xs font-bold text-slate-700 uppercase ml-1">Student / Exam Number (Username)</label>
                 <div className="relative">
                   <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <input
@@ -686,30 +659,6 @@ export default function LoginPage() {
                   />
                 </div>
               </div>
-
-              {/* Candidate Credentials Hints (Only shown when actual records exist in database) */}
-              {sampleApplicants.length > 0 && (
-                <div className="pt-2">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
-                    Recent Uploaded Candidates:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {sampleApplicants.map((samp, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => {
-                          setExamNumber(samp.examNumber);
-                          setFirstNamePassword(samp.firstName || samp.name.split(' ')[0]);
-                        }}
-                        className="px-2.5 py-1 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-950 text-slate-700 rounded-lg text-[11px] font-medium transition-all cursor-pointer border border-slate-200"
-                      >
-                        {samp.examNumber} ({samp.firstName || samp.name.split(' ')[0]})
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <button
                 type="submit"
@@ -842,16 +791,37 @@ export default function LoginPage() {
               </button>
             </div>
           ) : (
-            <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-              <p className="text-xs text-slate-500 mb-3 font-medium">
+            <div className="mt-6 pt-6 border-t border-slate-100 text-center space-y-3">
+              <p className="text-xs text-slate-500 font-medium">
                 {mode === 'login' ? 'Looking to submit a fresh application?' : 'Already have an account?'}
               </p>
-              <button
-                onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-                className="px-6 py-2 border border-emerald-900 text-emerald-900 text-xs font-black rounded-xl hover:bg-emerald-50 transition-colors uppercase tracking-wider cursor-pointer"
-              >
-                {mode === 'login' ? 'Apply for Admission' : 'Sign In instead'}
-              </button>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+                  className="px-6 py-2 border border-emerald-900 text-emerald-900 text-xs font-black rounded-xl hover:bg-emerald-50 transition-colors uppercase tracking-wider cursor-pointer"
+                >
+                  {mode === 'login' ? 'Apply for Admission' : 'Sign In instead'}
+                </button>
+              </div>
+              {mode === 'login' && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthType('admin');
+                      setEmail('');
+                      setPassword('');
+                      setError(null);
+                      setSuccess(null);
+                    }}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer font-medium"
+                  >
+                    <Shield size={12} className="text-slate-400" />
+                    <span>Administrator Gateway</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

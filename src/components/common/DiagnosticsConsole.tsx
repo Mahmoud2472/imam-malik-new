@@ -25,9 +25,9 @@ export function DiagnosticsConsole() {
 
   const forceAuthenticate = async (role: 'admin' | 'applicant') => {
     if (role === 'admin') {
-      const enteredPassword = window.prompt('Strict Administrator Access: Enter admin password (admin123):');
+      const enteredPassword = window.prompt('Strict Administrator Access: Enter admin password:');
       if (enteredPassword !== 'admin123') {
-        alert('Access Denied: Incorrect administrator password. Password must be admin123.');
+        alert('Access Denied: Incorrect administrator password.');
         return;
       }
     }

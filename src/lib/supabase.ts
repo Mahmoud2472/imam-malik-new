@@ -260,7 +260,7 @@ const generateMockSupabaseClient = () => {
         const emailLower = (email || '').toLowerCase().trim();
         if (emailLower === 'admin@school.com') {
           if (password !== 'admin123') {
-            return { data: { user: null, session: null }, error: { message: 'Invalid administrator password. Password must be admin123.' } };
+            return { data: { user: null, session: null }, error: { message: 'Invalid administrator credentials.' } };
           }
         }
         const profiles = getMockData('profiles');

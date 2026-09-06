@@ -14,11 +14,37 @@ export interface EmailResult {
 export interface EmailServiceStatus {
   success: boolean;
   isConfigured: boolean;
+  status?: 'active' | 'simulation' | 'invalid_key_format';
+  keyWarning?: string;
+  maskedKey?: string;
   senderEmail: string;
   senderName: string;
   adminEmail: string;
   totalRecentLogs: number;
   mode: 'live_brevo' | 'simulation';
+}
+
+export interface TestAllEmailItemResult {
+  type: string;
+  title: string;
+  subject: string;
+  status: 'sent' | 'simulated' | 'failed';
+  provider: 'brevo' | 'simulation';
+  messageId?: string;
+  warning?: string;
+  error?: string;
+  htmlPreview?: string;
+}
+
+export interface TestAllResponse {
+  success: boolean;
+  total: number;
+  successful: number;
+  failed: number;
+  mode: 'live_brevo' | 'simulation' | 'mixed';
+  results: TestAllEmailItemResult[];
+  keyWarning?: string;
+  message: string;
 }
 
 export interface EmailLogItem {
@@ -440,16 +466,46 @@ export async function retryEmailLog(logId: string, overrideRecipient?: string): 
 }
 
 /**
- * 12. Send Test Email
+ * 12. Send Single Test Email
  */
-export async function sendTestEmail(testEmail: string, type: string): Promise<EmailResult> {
-  const { ok, data } = await postEmailApi('test', { testEmail, type });
+export async function sendTestEmail(
+  testEmail: string,
+  type: string,
+  mode: 'auto' | 'live' | 'simulation' = 'auto'
+): Promise<EmailResult & { status?: string; provider?: string; warning?: string; htmlPreview?: string }> {
+  const { ok, data } = await postEmailApi('test', { testEmail, type, mode });
 
   return {
     success: data?.success ?? ok,
-    message: data?.message || (ok ? 'Test email dispatched' : 'Test failed'),
-    isSimulated: data?.result?.status === 'simulated',
-    messageId: data?.result?.messageId,
-    error: data?.error
+    message: data?.message || (ok ? 'Test notification dispatched' : 'Test failed'),
+    isSimulated: data?.status === 'simulated' || data?.result?.status === 'simulated',
+    status: data?.status || data?.result?.status,
+    provider: data?.provider || data?.result?.provider,
+    warning: data?.warning,
+    messageId: data?.result?.messageId || data?.messageId,
+    error: data?.error,
+    htmlPreview: data?.htmlPreview
   };
+}
+
+/**
+ * 13. Batch Test All 9 Notification Templates
+ */
+export async function sendTestAllEmails(
+  testEmail: string,
+  mode: 'auto' | 'live' | 'simulation' = 'auto'
+): Promise<TestAllResponse> {
+  const { ok, data } = await postEmailApi('test-all', { testEmail, mode });
+  if (!ok || !data) {
+    return {
+      success: false,
+      total: 0,
+      successful: 0,
+      failed: 0,
+      mode: 'simulation',
+      results: [],
+      message: data?.error?.message || 'Failed to execute batch email tests.'
+    };
+  }
+  return data;
 }
